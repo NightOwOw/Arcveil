@@ -1,0 +1,415 @@
+// ============================================
+// router.js — View switching, toolbar, keyboard shortcuts
+// Imports: all view modules
+// Exports: initRouter, navigateTo
+// Events: listens 'nav:changed', emits 'view:changed'
+// ============================================
+
+import { state, EventBus, uid, saveHistory, undo, redo } from './state.js';
+import { initCanvas, fitAll, screenToCanvas, applyTransform } from './canvas/canvas.js';
+import { initNodes, renderNodes, addNodeAt, addMediaNode } from './canvas/nodes.js';
+import { initEdges, renderEdges, startEdgeConnect } from './canvas/edges.js';
+import { initSidebar } from './ui/sidebar.js';
+import { initPanels } from './ui/panels.js';
+import { initContextMenus, showCanvasMenu } from './ui/contextmenu.js';
+import { initModals } from './ui/modals.js';
+import { initThemes, applyTheme, cycleTheme } from './ui/themes.js';
+import { saveProject, saveProjectAs, openProject, newProject, startAutoSave } from './storage.js';
+import { initCompanion } from './companion/companion.js';
+
+let _currentView = 'dashboard';
+
+export async function initRouter() {
+  // Apply theme first
+  initThemes();
+
+  // Init UI subsystems
+  initSidebar();
+  initPanels();
+  initContextMenus();
+  initModals();
+
+  // Init canvas
+  const canvasContainer = document.getElementById('view-canvas');
+  const canvasInner     = document.getElementById('canvas-inner');
+  const edgesSvg        = document.getElementById('edges-svg');
+
+  initCanvas(canvasContainer, canvasInner);
+  initNodes(canvasInner);
+  initEdges(edgesSvg);
+  _bindCanvasInteraction(canvasContainer);
+
+  // Navigation
+  EventBus.on('nav:changed', navigateTo);
+  EventBus.on('canvas:fit-all', fitAll);
+  EventBus.on('canvas:add-node', ({ type, x, y }) => addNodeAt(type, x, y));
+  EventBus.on('canvas:zoom-changed', (z) => {
+    document.getElementById('sb-zoom').textContent = Math.round(z * 100) + '%';
+  });
+  EventBus.on('status:message', (msg) => {
+    const el = document.getElementById('sb-msg');
+    if (el) el.textContent = msg || '';
+  });
+  EventBus.on('state:changed', _updateStatusbar);
+  EventBus.on('project:saved', () => {
+    const dot = document.getElementById('sb-save-dot');
+    const txt = document.getElementById('sb-save-txt');
+    if (dot) { dot.className = 'sb-dot'; }
+    if (txt) txt.textContent = 'Saved';
+  });
+
+  // Init canvas mode
+  window._avCanvasMode = 'select';
+  window._avConnecting = false;
+
+  // Toolbar bindings
+  _bindToolbar();
+  _bindCanvasToolbar();
+  _bindPanelResize();
+
+  // Window controls
+  document.getElementById('wc-min')?.addEventListener('click', () => window.api.minimize());
+  document.getElementById('wc-max')?.addEventListener('click', () => window.api.maximize());
+  document.getElementById('wc-close')?.addEventListener('click', () => _onClose());
+
+  // Keyboard shortcuts
+  _bindKeyboard();
+
+  // Load last project or show demo
+  await _loadStartup();
+
+  // Navigate to dashboard
+  navigateTo('dashboard');
+
+  // Start companion system (non-blocking)
+  initCompanion().catch(e => console.warn('[companion] init failed:', e));
+
+  // Wire overlay requests from main
+  window.api?.on('overlay:request-state', _pushOverlayState);
+  window.api?.on('navigate:item',  item => _navigateToItem(item));
+  window.api?.on('navigate:settings', () => navigateTo('settings'));
+  window.api?.on('quick-capture',  () => navigateTo('writing'));
+
+  // Start periodic overlay state push
+  setInterval(_pushOverlayState, 30_000);
+  setTimeout(_pushOverlayState, 3000);
+}
+
+function _pushOverlayState() {
+  const wc = (state.writing?.documents || []).reduce((s, d) => s + _wc(d.text || ''), 0);
+  const chars = (state.nodes || [])
+    .filter(n => n.type === 'character')
+    .slice(0, 10)
+    .map(n => ({ id: n.id, name: n.label, emoji: n.emoji || '👤' }));
+
+  window.api?.overlayStatePush?.({
+    projectName:      state.project?.name    || 'Untitled',
+    wordCountToday:   state.companion?.todayWords || 0,
+    dailyGoal:        state.companion?.dailyGoal  || 1000,
+    sessionMs:        0,
+    streak:           state.companion?.streak     || 0,
+    recentCharacters: chars,
+    activeTodos:      (state.companion?.todos || []).filter(t => !t.completed).slice(0, 5),
+    companionName:    state.companion?.name || 'Ciona',
+    documents:        (state.writing?.documents || []).map(d => ({ id: d.id, title: d.title, wordCount: _wc(d.text||'') })),
+    locations:        (state.world?.locations || []),
+    lore:             (state.world?.lore      || []),
+    todos:            (state.companion?.todos  || []),
+  });
+}
+
+function _wc(text) {
+  return (text || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+function _navigateToItem(item) {
+  if (!item) return;
+  switch (item.type) {
+    case 'character': navigateTo('characters'); break;
+    case 'document':  navigateTo('writing'); break;
+    case 'location':
+    case 'lore':      navigateTo('lore'); break;
+    default:          navigateTo('dashboard');
+  }
+}
+
+export function navigateTo(view) {
+  _currentView = view;
+  state.activeView = view;
+
+  // Hide all views
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+
+  // Show target view
+  const viewEl = document.getElementById(`view-${view}`);
+  if (viewEl) viewEl.classList.add('active');
+
+  // Update nav active state
+  EventBus.emit('view:changed', view);
+
+  // Lazy-load view modules
+  _loadViewModule(view);
+}
+
+async function _loadViewModule(view) {
+  try {
+    switch (view) {
+      case 'canvas':
+        renderNodes(); renderEdges(); applyTransform();
+        EventBus.emit('canvas:zoom-changed', state.view.scale);
+        break;
+      case 'characters':
+        (await import('./character/profile.js')).renderCharacterList?.();
+        break;
+      case 'writing':
+        (await import('./writing/editor.js')).renderWritingView?.(document.getElementById('view-writing'));
+        break;
+      case 'world':
+        (await import('./world/map.js')).renderWorldView?.(document.getElementById('view-world'));
+        break;
+      case 'story':
+        (await import('./story/timeline.js')).renderStoryView?.(document.getElementById('view-story'));
+        break;
+      case 'lore':
+        (await import('./world/lore.js')).renderLoreView?.(document.getElementById('view-lore'));
+        break;
+      case 'dashboard':
+        (await import('./ui/dashboard.js')).renderDashboard?.(document.getElementById('view-dashboard'));
+        break;
+      case 'settings':
+        (await import('./settings/settings-ui.js')).renderSettingsView?.(document.getElementById('view-settings'));
+        break;
+      case 'about':
+        (await import('./about/about.js')).renderAboutView?.(document.getElementById('view-about'));
+        break;
+    }
+  } catch (e) { console.warn('View load error:', view, e); }
+}
+
+// ── Canvas interaction ────────────────────────────────────────────────────────
+
+function _bindCanvasInteraction(container) {
+  if (!container) return;
+  let panning = false, startX, startY, startVX, startVY;
+
+  container.addEventListener('mousedown', e => {
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      panning = true;
+      startX = e.clientX; startY = e.clientY;
+      startVX = state.view.x; startVY = state.view.y;
+      container.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!panning) return;
+    state.view.x = startVX + (e.clientX - startX);
+    state.view.y = startVY + (e.clientY - startY);
+    applyTransform();
+  });
+
+  document.addEventListener('mouseup', e => {
+    if (e.button === 1 || panning) {
+      panning = false;
+      container.style.cursor = '';
+    }
+  });
+
+  container.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    showCanvasMenu(e.clientX, e.clientY, x, y);
+  });
+
+  container.addEventListener('dblclick', e => {
+    if (e.target.closest('.node')) return; // node handles its own dblclick
+    const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    addNodeAt('character', x, y);
+  });
+}
+
+// ── Toolbar ───────────────────────────────────────────────────────────────────
+
+function _bindToolbar() {
+  document.getElementById('tb-new')?.addEventListener('click', newProject);
+  document.getElementById('tb-open')?.addEventListener('click', () => openProject());
+  document.getElementById('tb-save')?.addEventListener('click', saveProject);
+  document.getElementById('tb-undo')?.addEventListener('click', undo);
+  document.getElementById('tb-redo')?.addEventListener('click', redo);
+  document.getElementById('tb-theme')?.addEventListener('click', cycleTheme);
+  document.getElementById('tb-settings')?.addEventListener('click', () => navigateTo('settings'));
+  document.getElementById('tb-media')?.addEventListener('click', () => {
+    if (_currentView === 'canvas') {
+      const rect = document.getElementById('view-canvas').getBoundingClientRect();
+      const { x, y } = screenToCanvas(rect.width / 2, rect.height / 2);
+      addMediaNode(x, y);
+    }
+  });
+
+  // Node type quick-add
+  document.querySelectorAll('[data-add-type]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (_currentView !== 'canvas') navigateTo('canvas');
+      setTimeout(() => {
+        const rect = document.getElementById('view-canvas')?.getBoundingClientRect();
+        if (rect) {
+          const { x, y } = screenToCanvas(rect.width/2 + Math.random()*80-40, rect.height/2 + Math.random()*80-40);
+          addNodeAt(btn.dataset.addType, x, y);
+        }
+      }, 100);
+    });
+  });
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+
+function _bindKeyboard() {
+  document.addEventListener('keydown', e => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    if (ctrl && e.key === 'n') { e.preventDefault(); newProject(); }
+    if (ctrl && e.key === 'o') { e.preventDefault(); openProject(); }
+    if (ctrl && e.key === 's') { e.preventDefault(); e.shiftKey ? saveProjectAs() : saveProject(); }
+    if (ctrl && e.key === 'z') { e.preventDefault(); undo(); EventBus.emit('nodes:updated'); }
+    if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); EventBus.emit('nodes:updated'); }
+    if (ctrl && e.key === ',') { e.preventDefault(); navigateTo('settings'); }
+
+    // Canvas shortcuts
+    if (_currentView === 'canvas') {
+      if (e.key === 'n' || e.key === 'N') addNodeAt('character', 300 + Math.random()*200, 200 + Math.random()*200);
+      if (e.key === 'f' || e.key === 'F') fitAll();
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        state.selectedNodes.forEach(id => { import('./state.js').then(m => m.deleteNode(id)); });
+        state.selectedNodes.clear();
+      }
+    }
+
+    // View shortcuts
+    if (e.key === '1') navigateTo('dashboard');
+    if (e.key === '2') navigateTo('canvas');
+    if (e.key === '3') navigateTo('characters');
+    if (e.key === '4') navigateTo('writing');
+    if (e.key === '5') navigateTo('world');
+  });
+}
+
+// ── Statusbar ──────────────────────────────────────────────────────────────────
+
+function _updateStatusbar() {
+  const dot = document.getElementById('sb-save-dot');
+  const txt = document.getElementById('sb-save-txt');
+  const name = document.getElementById('titlebar-project-name');
+  const dirty = document.getElementById('titlebar-dirty');
+
+  if (dot) dot.className = state.project.isDirty ? 'sb-dot unsaved' : 'sb-dot';
+  if (txt) txt.textContent = state.project.isDirty ? 'Unsaved' : 'Saved';
+  if (name) name.textContent = state.project.name || 'Untitled';
+  if (dirty) dirty.textContent = state.project.isDirty ? ' •' : '';
+}
+
+// ── Startup ───────────────────────────────────────────────────────────────────
+
+// ── Canvas toolbar ────────────────────────────────────────────────────────────
+
+function _bindCanvasToolbar() {
+  const setMode = (mode) => {
+    window._avCanvasMode = mode;
+    document.getElementById('ct-select')?.classList.toggle('active', mode === 'select');
+    document.getElementById('ct-connect')?.classList.toggle('active', mode === 'connect');
+    const canvas = document.getElementById('view-canvas');
+    if (canvas) canvas.style.cursor = mode === 'connect' ? 'crosshair' : '';
+    if (mode === 'connect') EventBus.emit('status:message', 'Click the first node, then the second to connect');
+    else EventBus.emit('status:message', '');
+  };
+
+  document.getElementById('ct-select')?.addEventListener('click', () => setMode('select'));
+  document.getElementById('ct-connect')?.addEventListener('click', () => {
+    setMode(window._avCanvasMode === 'connect' ? 'select' : 'connect');
+  });
+  document.getElementById('ct-fit')?.addEventListener('click', fitAll);
+  document.getElementById('ct-zoom-in')?.addEventListener('click', () => {
+    state.view.scale = Math.min(8, state.view.scale * 1.25);
+    applyTransform();
+    EventBus.emit('canvas:zoom-changed', state.view.scale);
+  });
+  document.getElementById('ct-zoom-out')?.addEventListener('click', () => {
+    state.view.scale = Math.max(0.1, state.view.scale / 1.25);
+    applyTransform();
+    EventBus.emit('canvas:zoom-changed', state.view.scale);
+  });
+
+  EventBus.on('canvas:mode-reset', () => setMode('select'));
+}
+
+// ── Panel resize ──────────────────────────────────────────────────────────────
+
+function _bindPanelResize() {
+  _makeResizable('sidebar-resize', 'sidebar', false, 140, 360);
+  _makeResizable('panel-resize',   'right-panel', true,  160, 480);
+}
+
+function _makeResizable(handleId, panelId, fromRight, min, max) {
+  const handle = document.getElementById(handleId);
+  const panel  = document.getElementById(panelId);
+  if (!handle || !panel) return;
+  let startX, startW;
+
+  handle.addEventListener('mousedown', e => {
+    startX = e.clientX;
+    startW = panel.getBoundingClientRect().width;
+    handle.classList.add('dragging');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault();
+  });
+
+  function onMove(e) {
+    const dx = e.clientX - startX;
+    const newW = Math.max(min, Math.min(max, fromRight ? startW - dx : startW + dx));
+    panel.style.width = newW + 'px';
+  }
+
+  function onUp() {
+    handle.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+}
+
+async function _loadStartup() {
+  try {
+    const settings = await window.api.loadSettings();
+    if (settings?.theme) applyTheme(settings.theme);
+    if (settings?.lastFile) {
+      const exists = await window.api.fsExists(settings.lastFile);
+      if (exists) {
+        await openProject(settings.lastFile);
+        return;
+      }
+    }
+  } catch {}
+
+  // Load demo content if no project
+  import('./storage.js').then(m => {
+    if (!state.nodes.length) {
+      m.loadDemoProject();
+    }
+  });
+}
+
+async function _onClose() {
+  if (state.project.isDirty) {
+    const confirmed = confirm('You have unsaved changes. Save before closing?');
+    if (confirmed) await saveProject();
+  }
+  window.api.close();
+}
+
+// Auto-boot when loaded as a module script
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => initRouter());
+} else {
+  initRouter();
+}

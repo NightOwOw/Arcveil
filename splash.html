@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #ffffff;
+      overflow: hidden;
+      user-select: none;
+    }
+    .splash-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .splash-img.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+  <img class="splash-img" id="splash" src="./assets/icons/new_load.png" draggable="false">
+  <script>
+    // Fade in once image loads
+    const img = document.getElementById('splash');
+    img.onload = () => img.classList.add('visible');
+    if (img.complete) img.classList.add('visible');
+  </script>
+</body>
+</html>

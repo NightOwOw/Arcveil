@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: transparent;
+      overflow: hidden;
+      width: 100%; height: 100%;
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+
+    #hud {
+      position: fixed; inset: 0;
+      background: rgba(10, 10, 20, 0.75);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      color: #eaeaea;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      cursor: move;
+      backdrop-filter: blur(8px);
+      transition: background 0.2s;
+    }
+    #hud.micro  { background: rgba(10,10,20,0.6); flex-direction: row; align-items: center; padding: 0 8px; gap: 8px; }
+    #hud.ghost  { background: rgba(10,10,20,0.15); border-color: rgba(255,255,255,0.04); }
+    #hud.dim    { background: rgba(10,10,20,0.40); }
+    #hud.solid  { background: rgba(10,10,20,0.92); }
+
+    .hud-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px;
+    }
+    .hud-icon { font-size: 11px; opacity: 0.7; }
+    .hud-val { font-size: 13px; font-weight: 700; }
+    .hud-label { font-size: 10px; opacity: 0.6; }
+
+    .hud-goal-bar {
+      height: 3px; background: rgba(255,255,255,0.1); margin: 0 10px 6px;
+      border-radius: 2px; overflow: hidden;
+    }
+    .hud-goal-fill {
+      height: 100%; background: #7c5cbf; border-radius: 2px;
+      transition: width 0.5s ease;
+    }
+
+    .hud-micro-stat { font-size: 11px; font-weight: 700; }
+    .hud-sep { width: 1px; height: 14px; background: rgba(255,255,255,0.15); }
+
+    #hud-companion-msg {
+      font-size: 10px; color: rgba(255,255,255,0.6); padding: 0 10px 6px;
+      font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* Context menu */
+    #ctx-menu {
+      position: fixed; background: rgba(20,20,35,0.98); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; padding: 4px; z-index: 999; min-width: 140px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: none;
+    }
+    .ctx-item {
+      padding: 6px 10px; font-size: 12px; cursor: pointer; border-radius: 4px;
+      color: #eaeaea; white-space: nowrap;
+    }
+    .ctx-item:hover { background: rgba(255,255,255,0.08); }
+    .ctx-sep { height: 1px; background: rgba(255,255,255,0.1); margin: 3px 0; }
+    .ctx-item.active { color: #9b7fd4; }
+  </style>
+</head>
+<body>
+  <div id="hud" class="compact">
+    <div class="hud-row">
+      <span class="hud-icon">📝</span>
+      <span class="hud-val" id="hud-words">0</span>
+      <span class="hud-label">/ <span id="hud-goal">1000</span> words</span>
+      <div style="flex:1"></div>
+      <span class="hud-icon">⏱</span>
+      <span class="hud-val" id="hud-time">0m</span>
+    </div>
+    <div class="hud-goal-bar"><div class="hud-goal-fill" id="hud-fill" style="width:0%"></div></div>
+    <div class="hud-row" style="padding-top:0">
+      <span class="hud-icon">🔥</span>
+      <span id="hud-streak" style="font-size:11px">streak: 0</span>
+      <div style="flex:1"></div>
+      <span id="hud-size-toggle" style="font-size:10px;opacity:0.5;cursor:pointer">◻</span>
+    </div>
+    <div id="hud-companion-msg"></div>
+  </div>
+
+  <div id="ctx-menu">
+    <div class="ctx-item" data-action="opacity-ghost">Ghost (15%)</div>
+    <div class="ctx-item" data-action="opacity-dim">Dim (40%)</div>
+    <div class="ctx-item active" data-action="opacity-normal">Normal (75%)</div>
+    <div class="ctx-item" data-action="opacity-solid">Solid (95%)</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="size-micro">Micro</div>
+    <div class="ctx-item active" data-action="size-compact">Compact</div>
+    <div class="ctx-item" data-action="size-full">Full</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="close">Close HUD</div>
+  </div>
+
+  <script>
+    const api = window.overlayApi;
+    const hud = document.getElementById('hud');
+    let sizeMode = 'compact';
+
+    // Update data
+    if (api) api.onUpdate(data => {
+      if (!data) return;
+      document.getElementById('hud-words').textContent  = data.wordCountToday || 0;
+      document.getElementById('hud-goal').textContent   = data.dailyGoal || 1000;
+      document.getElementById('hud-streak').textContent = 'streak: ' + (data.streak || 0);
+      const pct = Math.min(100, ((data.wordCountToday || 0) / (data.dailyGoal || 1000)) * 100);
+      document.getElementById('hud-fill').style.width   = pct + '%';
+      const m = Math.floor((data.sessionMs || 0) / 60000);
+      document.getElementById('hud-time').textContent   = m < 60 ? m + 'm' : Math.floor(m/60) + 'h ' + (m%60) + 'm';
+      if (data.companionMessage) document.getElementById('hud-companion-msg').textContent = data.companionMessage;
+    });
+
+    // Dragging
+    let drag = false, sx = 0, sy = 0;
+    hud.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      drag = true; sx = e.screenX; sy = e.screenY;
+    });
+    document.addEventListener('mousemove', e => {
+      if (!drag) return;
+      api?.moveBy?.(e.screenX - sx, e.screenY - sy);
+      sx = e.screenX; sy = e.screenY;
+    });
+    document.addEventListener('mouseup', () => { drag = false; });
+
+    // Right-click menu
+    document.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      const m = document.getElementById('ctx-menu');
+      m.style.display = 'block';
+      m.style.left = e.clientX + 'px';
+      m.style.top  = e.clientY + 'px';
+    });
+    document.addEventListener('click', () => {
+      document.getElementById('ctx-menu').style.display = 'none';
+    });
+
+    document.querySelectorAll('.ctx-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const a = el.dataset.action;
+        if (a.startsWith('opacity-')) {
+          hud.className = hud.className.replace(/\b(ghost|dim|normal|solid)\b/g, '');
+          hud.classList.add(a.replace('opacity-', ''));
+        }
+        if (a.startsWith('size-')) {
+          const sz = a.replace('size-', '');
+          hud.className = hud.className.replace(/\b(micro|compact|full)\b/g, sz);
+          hud.classList.add(sz); sizeMode = sz;
+          api?.resize?.(sz);
+        }
+        if (a === 'close') api?.close?.();
+      });
+    });
+  </script>
+</body>
+</html>

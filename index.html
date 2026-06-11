@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="arcveil">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArcVeil</title>
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/themes.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/canvas.css">
+  <link rel="stylesheet" href="styles/profile.css">
+  <link rel="stylesheet" href="styles/writing.css">
+  <link rel="stylesheet" href="styles/map.css">
+  <link rel="stylesheet" href="styles/modals.css">
+  <link rel="stylesheet" href="styles/settings.css">
+  <link rel="stylesheet" href="styles/about.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Titlebar -->
+  <div id="titlebar">
+    <div id="titlebar-logo">
+      <div class="tl-logomark">A</div>
+      <span class="tl-name">ArcVeil</span>
+    </div>
+    <div id="titlebar-project">
+      <span class="tl-sep">—</span>
+      <span id="titlebar-project-name">Untitled</span>
+      <span id="titlebar-dirty"></span>
+    </div>
+    <div id="window-controls">
+      <button class="wc-btn" id="wc-min"   title="Minimize">─</button>
+      <button class="wc-btn" id="wc-max"   title="Maximize">□</button>
+      <button class="wc-btn" id="wc-close" title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <button class="tb-btn" id="tb-new" title="New Project (Ctrl+N)">
+      <svg viewBox="0 0 16 16"><rect x="3" y="2" width="10" height="12" rx="1.5"/><path d="M6 2v4h4M9 6V2"/></svg>New
+    </button>
+    <button class="tb-btn" id="tb-open" title="Open Project (Ctrl+O)">
+      <svg viewBox="0 0 16 16"><path d="M2 5.5A1.5 1.5 0 013.5 4h3l1.5 2H13A1.5 1.5 0 0114.5 7.5V12A1.5 1.5 0 0113 13.5H3A1.5 1.5 0 011.5 12V5.5z"/></svg>Open
+    </button>
+    <button class="tb-btn" id="tb-save" title="Save (Ctrl+S)">
+      <svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M10 2v4h3M5.5 9.5l1.5 1.5 3-3"/></svg>Save
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="tb-undo" title="Undo (Ctrl+Z)">
+      <svg viewBox="0 0 16 16"><path d="M3 8h10M3 8l3-3M3 8l3 3"/></svg>Undo
+    </button>
+    <button class="tb-btn" id="tb-redo" title="Redo (Ctrl+Y)">
+      <svg viewBox="0 0 16 16"><path d="M13 8H3M13 8l-3-3M13 8l-3 3"/></svg>Redo
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn node-char" data-add-type="character" title="Add Character (N)">
+      <svg viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.8"/><path d="M2 14c0-3.31 2.69-6 6-6s6 2.69 6 6"/></svg>Character
+    </button>
+    <button class="tb-btn node-loc" data-add-type="location" title="Add Location">
+      <svg viewBox="0 0 16 16"><path d="M8 1.5a4.5 4.5 0 014.5 4.5c0 3.5-4.5 8.5-4.5 8.5S3.5 9.5 3.5 6A4.5 4.5 0 018 1.5z"/><circle cx="8" cy="6" r="1.5"/></svg>Location
+    </button>
+    <button class="tb-btn node-fact" data-add-type="faction" title="Add Faction">
+      <svg viewBox="0 0 16 16"><path d="M8 1l2 5.5H15l-4.5 3.3 1.7 5.2L8 12l-4.2 3 1.7-5.2L1 6.5h5L8 1z"/></svg>Faction
+    </button>
+    <button class="tb-btn node-event" data-add-type="event" title="Add Event">
+      <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M5 2v2M11 2v2M2 7h12"/></svg>Event
+    </button>
+    <button class="tb-btn" id="tb-media" title="Add Media File">
+      <svg viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M2 7h12M6 4V2M10 4V2"/></svg>Media
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="tb-theme" title="Cycle Theme"><svg viewBox="0 0 16 16" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12"/><circle cx="8" cy="8" r="2" style="fill:currentColor;stroke:none"/></svg> Theme</button>
+    <div id="tb-spacer"></div>
+    <button class="tb-btn" id="tb-settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 16 16" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M12.95 3.05l-1.06 1.06M4.11 11.89l-1.06 1.06"/></svg> Settings</button>
+  </div>
+
+  <!-- Body -->
+  <div id="body">
+
+    <!-- Left Sidebar (resizable) -->
+    <div id="sidebar">
+      <div id="sidebar-nav"></div>
+      <div id="sidebar-content"></div>
+      <div id="sidebar-bottom">
+        <div class="nav-item" data-view="settings" onclick="document.dispatchEvent(new CustomEvent('nav',{detail:'settings'}))">
+          <span class="nav-icon"><svg viewBox="0 0 16 16" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M12.95 3.05l-1.06 1.06M4.11 11.89l-1.06 1.06"/></svg></span>
+          <span class="nav-label">Settings</span>
+        </div>
+        <div class="nav-item" data-view="about" onclick="document.dispatchEvent(new CustomEvent('nav',{detail:'about'}))">
+          <span class="nav-icon"><svg viewBox="0 0 16 16" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 5.5v.5"/></svg></span>
+          <span class="nav-label">About</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="resize-handle" id="sidebar-resize"></div>
+
+    <!-- Main area -->
+    <div id="main">
+
+      <!-- Dashboard -->
+      <div id="view-dashboard" class="view"></div>
+
+      <!-- Relationship Map Canvas -->
+      <div id="view-canvas" class="view" style="position:relative;overflow:hidden">
+        <div id="canvas-inner" style="position:absolute;transform-origin:0 0">
+          <svg id="edges-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible"></svg>
+        </div>
+        <!-- Canvas toolbar overlay -->
+        <div id="canvas-toolbar">
+          <button class="ct-btn active" id="ct-select" title="Select (V)"><svg viewBox="0 0 16 16"><path d="M3 2l10 6-5 1-3 5z"/></svg> Select</button>
+          <button class="ct-btn" id="ct-connect" title="Connect (C)"><svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="2"/><circle cx="13" cy="8" r="2"/><path d="M5 8h6"/></svg> Connect</button>
+          <div class="ct-sep"></div>
+          <button class="ct-btn" id="ct-fit" title="Fit all (F)"><svg viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg> Fit</button>
+          <button class="ct-btn" id="ct-zoom-in"  title="Zoom in (+)"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M5 7h4M7 5v4M10.5 10.5l3 3"/></svg></button>
+          <button class="ct-btn" id="ct-zoom-out" title="Zoom out (-)"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M5 7h4M10.5 10.5l3 3"/></svg></button>
+        </div>
+        <!-- Minimap -->
+        <div id="minimap">
+          <canvas id="minimap-canvas" width="120" height="80"></canvas>
+          <div id="minimap-viewport"></div>
+        </div>
+      </div>
+
+      <!-- Characters List -->
+      <div id="view-characters" class="view"></div>
+
+      <!-- Writing Hub -->
+      <div id="view-writing" class="view"></div>
+
+      <!-- World & Maps -->
+      <div id="view-world" class="view"></div>
+
+      <!-- Story Structure -->
+      <div id="view-story" class="view"></div>
+
+      <!-- Lore & World -->
+      <div id="view-lore" class="view"></div>
+
+      <!-- Settings -->
+      <div id="view-settings" class="view"></div>
+
+      <!-- About -->
+      <div id="view-about" class="view"></div>
+
+    </div><!-- /main -->
+
+    <div class="resize-handle" id="panel-resize"></div>
+
+    <!-- Right Panel -->
+    <div id="right-panel">
+      <div id="rp-header">Properties</div>
+      <div id="rp-tabs"></div>
+      <div id="rp-body">
+        <div class="placeholder-view" style="padding:20px;font-size:11px;color:var(--av-text-muted);text-align:center">
+          Select a node to view details
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /body -->
+
+  <!-- Statusbar -->
+  <div id="statusbar">
+    <div class="sb-item">🔒 Local</div>
+    <div class="sb-item" id="sb-version" title="ArcVeil v1.0.0">v1.0.0</div>
+    <div class="sb-item" id="sb-project">Untitled</div>
+    <div class="sb-item">
+      <div class="sb-dot" id="sb-save-dot"></div>
+      <span id="sb-save-txt">Saved</span>
+    </div>
+    <div class="sb-item" id="sb-msg" style="color:var(--av-accent)"></div>
+    <div id="sb-spacer"></div>
+    <div class="sb-item" id="sb-zoom">100%</div>
+    <div class="sb-item clickable" id="sb-words" title="Word count">0 words</div>
+  </div>
+
+</div><!-- /app -->
+
+<script type="module" src="src/router.js"></script>
+</body>
+</html>

@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ArcVeil Companion</title>
+
+  <!-- Load order is critical: THREE → GLTFLoader addon → three-vrm -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@1/lib/three-vrm.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      background: transparent !important;
+      overflow: visible;
+      width: 220px; height: 380px;
+      -webkit-user-select: none; user-select: none;
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+    }
+
+    /* ── VRM canvas ─────────────────────────────── */
+    #vrm-canvas {
+      position: absolute;
+      bottom: 0; left: 0;
+      width: 220px; height: 380px;
+      display: none;
+    }
+
+    /* ── 2D emoji fallback ──────────────────────── */
+    #avatar-fallback {
+      position: absolute;
+      bottom: 22px; left: 50%;
+      transform: translateX(-50%);
+      width: 118px; height: 118px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 56px;
+      cursor: grab;
+      filter: drop-shadow(0 4px 18px rgba(0,0,0,0.55));
+      animation: float 3s ease-in-out infinite;
+    }
+    #avatar-fallback:active { cursor: grabbing; }
+
+    @keyframes float {
+      0%,100% { transform: translateX(-50%) translateY(0); }
+      50%      { transform: translateX(-50%) translateY(-8px); }
+    }
+
+    /* ── Debug fallback circle ──────────────────── */
+    #debug-fallback {
+      display: none;
+      position: absolute;
+      bottom: 30px; left: 50%; transform: translateX(-50%);
+      width: 96px; height: 96px; border-radius: 50%;
+      align-items: center; justify-content: center;
+      font-size: 34px; font-weight: 800; color: #fff;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    /* ── Drag handle overlay ────────────────────── */
+    #drag-handle {
+      position: absolute;
+      bottom: 0; left: 0; right: 0; height: 120px;
+      cursor: grab; z-index: 5;
+    }
+    #drag-handle:active { cursor: grabbing; }
+
+    /* ── Speech bubble ──────────────────────────── */
+    #speech-bubble {
+      position: absolute;
+      top: 8px; left: 50%;
+      transform: translateX(-50%);
+      width: 208px;
+      background: rgba(15, 12, 28, 0.93);
+      border: 1px solid rgba(196, 155, 255, 0.38);
+      border-radius: 14px;
+      padding: 9px 28px 9px 10px;
+      font-size: 12px; line-height: 1.52;
+      color: #e8e6f4;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.55);
+      backdrop-filter: blur(8px);
+      display: none;
+      z-index: 20;
+      pointer-events: all;
+    }
+    #speech-bubble.show {
+      animation: bubbleIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+    @keyframes bubbleIn {
+      from { opacity:0; transform:translateX(-50%) translateY(-6px) scale(0.93); }
+      to   { opacity:1; transform:translateX(-50%) translateY(0)     scale(1); }
+    }
+    #speech-bubble::after {
+      content: '';
+      position: absolute;
+      bottom: -7px; left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 10px; height: 10px;
+      background: rgba(15, 12, 28, 0.93);
+      border-right: 1px solid rgba(196,155,255,0.38);
+      border-bottom: 1px solid rgba(196,155,255,0.38);
+    }
+
+    .bubble-header {
+      display: flex; align-items: center; gap: 5px;
+      margin-bottom: 4px;
+    }
+    .bubble-portrait {
+      width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px; font-weight: 700; color: #fff; flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.14);
+    }
+    #bubble-name {
+      font-size: 9px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: #c49bff;
+    }
+    #bubble-text { word-wrap: break-word; }
+
+    #bubble-dismiss {
+      position: absolute; top: 7px; right: 7px;
+      background: none; border: none;
+      color: rgba(200,190,230,0.4);
+      font-size: 15px; line-height: 1; cursor: pointer; padding: 0;
+    }
+    #bubble-dismiss:hover { color: #e8e6f4; }
+
+    /* ── Hold indicator ring ────────────────────── */
+    #hold-indicator {
+      position: fixed;
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 2px solid rgba(196, 155, 255, 0.75);
+      box-shadow: 0 0 12px rgba(196,155,255,0.25);
+      pointer-events: none;
+      display: none;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+    }
+    #hold-indicator.show {
+      animation: holdPulse 0.22s ease forwards;
+    }
+    @keyframes holdPulse {
+      from { opacity:0; transform:translate(-50%,-50%) scale(0.4); }
+      to   { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    }
+
+    /* ── Hold hint bar ──────────────────────────── */
+    #hold-hint {
+      position: absolute;
+      bottom: 8px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,14,36,0.86);
+      border: 1px solid rgba(124,92,191,0.22);
+      border-radius: 8px; padding: 4px 10px;
+      font-size: 9px; color: rgba(160,154,186,0.82);
+      pointer-events: none; opacity: 0;
+      transition: opacity 0.18s; z-index: 30;
+      text-align: center; white-space: nowrap;
+    }
+    #hold-hint.show { opacity: 1; }
+
+    /* ── Loading toast ──────────────────────────── */
+    #loading-toast {
+      position: absolute;
+      bottom: 10px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,14,36,0.92);
+      border: 1px solid rgba(124,92,191,0.28);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 10px; color: #9b7fd4;
+      opacity: 0; transition: opacity 0.25s;
+      pointer-events: none; white-space: nowrap; z-index: 50;
+    }
+
+    /* ── Debug overlay (toggle with Alt+D) ─────── */
+    #debug-overlay {
+      display: none;
+      position: absolute;
+      top: 4px; left: 4px;
+      font-size: 8px; line-height: 1.6;
+      color: rgba(255,255,0,0.85);
+      background: rgba(0,0,0,0.5);
+      padding: 2px 4px; border-radius: 3px;
+      pointer-events: none; z-index: 99;
+      white-space: nowrap;
+    }
+    #debug-overlay.show { display: block; }
+  </style>
+</head>
+<body>
+
+  <canvas id="vrm-canvas"></canvas>
+  <div id="avatar-fallback">✨</div>
+  <div id="debug-fallback">?</div>
+  <div id="drag-handle"></div>
+
+  <div id="speech-bubble">
+    <div class="bubble-header">
+      <div class="bubble-portrait" id="bubble-portrait">C</div>
+      <span id="bubble-name">Ciona</span>
+    </div>
+    <div id="bubble-text"></div>
+    <button id="bubble-dismiss" title="Dismiss">×</button>
+  </div>
+
+  <div id="hold-indicator"></div>
+  <div id="hold-hint">Hold + drag to move &nbsp;·&nbsp; Ctrl+F to load model</div>
+  <div id="loading-toast"></div>
+  <div id="debug-overlay" class="show"></div>
+
+<script>
+'use strict';
+
+// ── Companion definitions ─────────────────────────────────────────────────────
+
+const COMPANION_DEFS = {
+  ciona: {
+    emoji: '🐲', initials: 'C',
+    color: '#ff8cc8', nameColor: '#c49bff',
+    bubbleBg: 'rgba(15,12,28,0.93)', borderColor: 'rgba(196,155,255,0.38)',
+    ringColor: 'rgba(196,155,255,0.75)',
+    dizzyLines: [
+      "Waaah you're making me dizzy!! 😵",
+      "Stooop I'm spinning!! 🌀",
+      "AHHH the world is turning!!",
+      "H-hey!! My head is gonna fall off!! >.<",
+    ],
+  },
+  somvora: {
+    emoji: '🌙', initials: 'S',
+    color: '#7c3aed', nameColor: '#4ab8a0',
+    bubbleBg: 'rgba(8,6,18,0.95)', borderColor: 'rgba(74,184,160,0.33)',
+    ringColor: 'rgba(74,184,160,0.75)',
+    dizzyLines: [
+      "...the room is spinning. I like it.",
+      "Keep going... hehehe...",
+      "Dizzy... this is fine. Actually wonderful.",
+      "*whirls* Everything is beautiful~",
+    ],
+  },
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let _activeId  = 'ciona';
+let _vrm       = null;
+let _mixer     = null;
+let _camera    = null;
+let _renderer  = null;
+let _vrmLoaded = false;
+let _modelRotY = Math.PI;  // initial: VRM faces camera
+
+// Interaction state
+let _mouseActive = false;
+let _holdTimer   = null;
+let _isHolding   = false;
+let _holdMouseX  = 0;
+let _holdMouseY  = 0;
+
+// Drag
+let _dragging  = false;
+let _mouseDown = false;  // true immediately on mousedown; freezes physics before hold-timer fires
+
+// Scene / Lighting (module-level so applyLighting can reach them)
+let _scene        = null;
+let _ambientLight = null;
+let _dirLight     = null;
+
+// Zoom / Rotate / Pan
+let _rotating     = false;
+let _rotateStartX = 0;
+let _panning      = false;
+let _panStartX    = 0;
+let _panStartY    = 0;
+let _panCamX      = 0;
+let _panCamY      = 0;
+
+// Head tracking (smooth lerp)
+let _targetHeadY  = 0;
+let _targetHeadX  = 0;
+let _currentHeadY = 0;
+let _currentHeadX = 0;
+
+// Dizzy
+let _moveSamples  = [];
+let _isDizzy      = false;
+let _dizzyOverride = false;
+let _dizzyStartTime = 0;
+
+// Idle animation
+let _idleMode     = 0;
+let _idleModeTime = 0;
+let _lastBlink    = 0;
+let _nextBlink    = 3 + Math.random() * 4;
+
+// Bubble
+let _bubbleTimer = null;
+let _typeTimer   = null;
+
+// ── Visual update ─────────────────────────────────────────────────────────────
+
+function setCompanionVisuals(id) {
+  _activeId = id;
+  const def = COMPANION_DEFS[id] || COMPANION_DEFS.ciona;
+
+  const fallback = document.getElementById('avatar-fallback');
+  if (fallback) {
+    fallback.textContent = def.emoji;
+    fallback.style.background = def.color + '33';
+  }
+
+  const dbg = document.getElementById('debug-fallback');
+  if (dbg) { dbg.textContent = def.initials; dbg.style.background = def.color; }
+
+  const portrait = document.getElementById('bubble-portrait');
+  if (portrait) { portrait.textContent = def.initials; portrait.style.background = def.color; }
+
+  const bubbleName = document.getElementById('bubble-name');
+  if (bubbleName) {
+    bubbleName.textContent = id.charAt(0).toUpperCase() + id.slice(1);
+    bubbleName.style.color = def.nameColor;
+  }
+
+  const bubble = document.getElementById('speech-bubble');
+  if (bubble) {
+    bubble.style.background   = def.bubbleBg;
+    bubble.style.borderColor  = def.borderColor;
+  }
+
+  const ring = document.getElementById('hold-indicator');
+  if (ring) ring.style.borderColor = def.ringColor;
+}
+
+// ── Speech bubble ─────────────────────────────────────────────────────────────
+
+function showBubble(text) {
+  const bubble = document.getElementById('speech-bubble');
+  const textEl = document.getElementById('bubble-text');
+  if (!bubble || !textEl) return;
+
+  clearTimeout(_bubbleTimer);
+  clearInterval(_typeTimer);
+
+  bubble.classList.remove('show');
+  bubble.style.opacity   = '';
+  bubble.style.transform = '';
+  bubble.style.transition = '';
+  bubble.style.display   = 'block';
+  void bubble.offsetWidth;
+  bubble.classList.add('show');
+
+  textEl.textContent = '';
+  let i = 0;
+  _typeTimer = setInterval(() => {
+    if (i < text.length) textEl.textContent += text[i++];
+    else clearInterval(_typeTimer);
+  }, 28);
+
+  _playBubbleSound();
+  _bubbleTimer = setTimeout(hideBubble, 8000 + text.length * 16);
+}
+
+function hideBubble() {
+  const bubble = document.getElementById('speech-bubble');
+  if (!bubble) return;
+  bubble.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+  bubble.style.opacity   = '0';
+  bubble.style.transform = 'translateX(-50%) translateY(-4px) scale(0.97)';
+  setTimeout(() => {
+    if (!bubble) return;
+    bubble.style.display    = 'none';
+    bubble.style.opacity    = '';
+    bubble.style.transform  = '';
+    bubble.style.transition = '';
+    bubble.classList.remove('show');
+  }, 220);
+}
+
+function _playBubbleSound() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.055, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.11);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.11);
+  } catch {}
+}
+
+document.getElementById('bubble-dismiss')?.addEventListener('click', hideBubble);
+
+// ── Hold-to-activate ──────────────────────────────────────────────────────────
+
+// pointermove fires even in click-through mode (forward:true forwards move events)
+document.addEventListener('pointermove', (e) => {
+  _holdMouseX = e.clientX;
+  _holdMouseY = e.clientY;
+
+  if (!_mouseActive && _hitTest(e.clientX, e.clientY)) {
+    _mouseActive = true;
+    window.companionApi?.enableMouse();
+  }
+
+  // Dizzy tracking (only when mouse is captured)
+  if (_mouseActive) _trackMouseMove(e);
+});
+
+document.addEventListener('mouseleave', () => {
+  if (!_isHolding && !_dragging && !_rotating) _deactivateMouse();
+});
+
+document.addEventListener('mousedown', (e) => {
+  if (e.button === 0) {
+    // Left button — freeze physics immediately, then start hold timer
+    _mouseDown = true;
+    clearTimeout(_holdTimer);
+    _holdTimer = setTimeout(() => {
+      _isHolding = true;
+      _showHoldIndicator(_holdMouseX, _holdMouseY);
+      document.getElementById('hold-hint').classList.add('show');
+      window.companionApi?.startDrag();
+      _dragging = true;
+    }, 350);
+  } else if (e.button === 1) {
+    // Middle button — pan camera
+    if (_mouseActive && _camera) {
+      _panning   = true;
+      _panStartX = e.clientX;
+      _panStartY = e.clientY;
+      _panCamX   = _camera.position.x;
+      _panCamY   = _camera.position.y;
+      e.preventDefault();
+    }
+  } else if (e.button === 2) {
+    // Right button — rotate model
+    if (_mouseActive) {
+      _rotating = true;
+      _rotateStartX = e.clientX;
+      e.preventDefault();
+    }
+  }
+});
+
+document.addEventListener('mouseup', (e) => {
+  if (e.button === 0) {
+    _mouseDown = false;
+    clearTimeout(_holdTimer);
+    if (_isHolding || _dragging) {
+      _isHolding = false;
+      _dragging  = false;
+      _hideHoldIndicator();
+      document.getElementById('hold-hint').classList.remove('show');
+      window.companionApi?.stopDrag();
+    }
+    // Re-check if mouse is still over interactive area
+    if (!_hitTest(_holdMouseX, _holdMouseY)) _deactivateMouse();
+  } else if (e.button === 1) {
+    _panning = false;
+  } else if (e.button === 2) {
+    _rotating = false;
+  }
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (_panning && _camera) {
+    _camera.position.x = _panCamX - (e.clientX - _panStartX) * 0.008;
+    _camera.position.y = _panCamY + (e.clientY - _panStartY) * 0.008;
+  }
+  if (_rotating && _vrm) {
+    const dx = e.clientX - _rotateStartX;
+    _rotateStartX = e.clientX;
+    _modelRotY += dx * 0.012;
+    _vrm.scene.rotation.y = _modelRotY;
+  }
+});
+
+// Zoom with scroll wheel when mouse is captured
+document.addEventListener('wheel', (e) => {
+  if (!_mouseActive || !_camera) return;
+  e.preventDefault();
+  _camera.position.z = Math.max(1.4, Math.min(8, _camera.position.z + e.deltaY * 0.008));
+}, { passive: false });
+
+// Block context menu on right-click
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+document.addEventListener('keydown', (e) => {
+  // Ctrl+F while holding → model picker
+  if (_isHolding && (e.ctrlKey || e.metaKey) && e.key === 'f') {
+    e.preventDefault();
+    window.companionApi?.openModelPicker();
+  }
+  // Alt+D → toggle debug overlay
+  if (e.altKey && e.key === 'd') {
+    document.getElementById('debug-overlay')?.classList.toggle('show');
+  }
+});
+
+function _hitTest(x, y) {
+  const ids = ['vrm-canvas', 'avatar-fallback', 'drag-handle', 'debug-fallback', 'speech-bubble'];
+  return ids.some(id => {
+    const el = document.getElementById(id);
+    if (!el || el.style.display === 'none') return false;
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  });
+}
+
+function _deactivateMouse() {
+  _mouseActive = false;
+  window.companionApi?.disableMouse();
+}
+
+function _showHoldIndicator(x, y) {
+  const el = document.getElementById('hold-indicator');
+  if (!el) return;
+  el.style.left = x + 'px';
+  el.style.top  = y + 'px';
+  el.classList.remove('show');
+  el.style.display = 'block';
+  void el.offsetWidth;
+  el.classList.add('show');
+}
+
+function _hideHoldIndicator() {
+  const el = document.getElementById('hold-indicator');
+  if (el) { el.style.display = 'none'; el.classList.remove('show'); }
+}
+
+// ── Dizzy reaction ────────────────────────────────────────────────────────────
+
+function _trackMouseMove(e) {
+  if (_isDizzy) return;
+  const now = Date.now();
+  _moveSamples.push({ x: e.clientX, y: e.clientY, t: now });
+  _moveSamples = _moveSamples.filter(s => now - s.t < 1500);
+
+  if (_moveSamples.length > 18) {
+    let dist = 0;
+    for (let i = 1; i < _moveSamples.length; i++) {
+      const dx = _moveSamples[i].x - _moveSamples[i-1].x;
+      const dy = _moveSamples[i].y - _moveSamples[i-1].y;
+      dist += Math.sqrt(dx*dx + dy*dy);
+    }
+    if (dist > 750) _triggerDizzy();
+  }
+}
+
+function _triggerDizzy() {
+  if (_isDizzy) return;
+  _isDizzy = true;
+  _moveSamples = [];
+
+  const def = COMPANION_DEFS[_activeId] || COMPANION_DEFS.ciona;
+  const lines = def.dizzyLines;
+  showBubble(lines[Math.floor(Math.random() * lines.length)]);
+
+  _dizzyOverride    = true;
+  _dizzyStartTime   = performance.now() / 1000;
+
+  setTimeout(() => { _dizzyOverride = false; }, 3000);
+  setTimeout(() => { _isDizzy = false; }, 5000);
+}
+
+// ── Loading toast ─────────────────────────────────────────────────────────────
+
+function showToast(text, ms = 2000) {
+  const el = document.getElementById('loading-toast');
+  if (!el) return;
+  el.textContent = text;
+  el.style.opacity = '1';
+  setTimeout(() => { if (el) el.style.opacity = '0'; }, ms);
+}
+
+// ── VRM loading ───────────────────────────────────────────────────────────────
+
+async function tryLoadVRM(companionId) {
+  const THREE = window.THREE;
+  if (!THREE) { console.warn('[companion] THREE not loaded'); return false; }
+  if (!THREE.GLTFLoader) { console.warn('[companion] THREE.GLTFLoader unavailable'); return false; }
+
+  const VRMLoaderPlugin = window.THREE_VRM?.VRMLoaderPlugin;
+  if (!VRMLoaderPlugin) { console.warn('[companion] THREE_VRM.VRMLoaderPlugin unavailable'); return false; }
+
+  const modelUrl = await window.companionApi?.getModelPath?.(companionId);
+  if (!modelUrl) {
+    console.warn('[companion] No model file for:', companionId, '— 2D fallback active');
+    return false;
+  }
+
+  return _loadVRMFromUrl(modelUrl);
+}
+
+async function _loadVRMFromUrl(modelUrl) {
+  const THREE = window.THREE;
+  const VRMLoaderPlugin = window.THREE_VRM.VRMLoaderPlugin;
+  const canvas = document.getElementById('vrm-canvas');
+
+  showToast('Loading model...');
+
+  try {
+    // Dispose previous renderer if any
+    if (_renderer) { _renderer.dispose(); _renderer = null; }
+
+    // Reset cached bone refs — they belong to the previous model
+    _headBone = null; _neckBone = null; _boneLookupDone = false;
+
+    _renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    _renderer.setPixelRatio(window.devicePixelRatio || 1);
+    _renderer.setSize(220, 380);
+    _renderer.setClearColor(0x000000, 0);
+
+    _scene = new THREE.Scene();
+    _camera = new THREE.PerspectiveCamera(30, 220 / 380, 0.1, 20);
+    _camera.position.set(0, 1.2, 3.5);
+    _camera.lookAt(0, 1.0, 0);
+
+    _ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    _dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    _dirLight.position.set(1, 2, 2);
+    _scene.add(_ambientLight);
+    _scene.add(_dirLight);
+
+    const loader = new THREE.GLTFLoader();
+    loader.register(parser => new VRMLoaderPlugin(parser));
+
+    const gltf = await new Promise((resolve, reject) => {
+      loader.load(modelUrl, resolve, undefined, reject);
+    });
+
+    _vrm = gltf.userData.vrm;
+    if (!_vrm) throw new Error('gltf.userData.vrm is undefined');
+
+    _vrm.scene.rotation.y = _modelRotY;
+    _scene.add(_vrm.scene);
+    _mixer = new THREE.AnimationMixer(_vrm.scene);
+
+    canvas.style.display = 'block';
+    document.getElementById('avatar-fallback').style.display  = 'none';
+    document.getElementById('debug-fallback').style.display   = 'none';
+
+    const clock = new THREE.Clock();
+    (function renderLoop() {
+      requestAnimationFrame(renderLoop);
+      const delta   = Math.min(clock.getDelta(), 0.05); // cap at 50ms — prevents physics blowup after tab-wake
+      const elapsed = clock.getElapsedTime();
+      _mixer?.update(delta);
+      if (_vrm) {
+        // _mouseDown freezes physics the instant the button goes down (before 350ms hold-timer fires)
+        const frozen = _dragging || _isHolding || _mouseDown;
+        _vrm.update(frozen ? 0 : delta);
+        if (!frozen) {
+          if (_dizzyOverride) {
+            _applyDizzyAnim(_vrm, elapsed);
+          } else {
+            _proceduralIdle(_vrm, elapsed);
+          }
+        }
+        // Hard-lock scene position/rotation every frame (spring bones can't drift it)
+        lockVRMPosition();
+        // Head tracking runs AFTER lockVRMPosition so it's the absolute last write to bones
+        if (!frozen && !_dizzyOverride) _applyHeadTracking(_vrm, elapsed);
+      }
+      _renderer.render(_scene, _camera);
+      _updateDebug();
+    })();
+
+    showToast('Model loaded!', 1500);
+    console.log('[companion] VRM loaded:', modelUrl);
+    return true;
+
+  } catch (err) {
+    console.error('[companion] VRM load failed:', err);
+    showToast('Model failed to load', 2000);
+    return false;
+  }
+}
+
+// ── Lighting profiles ─────────────────────────────────────────────────────────
+
+function applyLighting(mode) {
+  if (!_ambientLight || !_dirLight) return;
+  const P = {
+    warm:     { aC: 0xffe4c8, aI: 0.70, dC: 0xffcf88, dI: 0.90 },
+    neutral:  { aC: 0xffffff, aI: 0.60, dC: 0xffffff, dI: 0.80 },
+    cool:     { aC: 0xc8d8ff, aI: 0.65, dC: 0xa0c0ff, dI: 0.85 },
+    dramatic: { aC: 0x441122, aI: 0.35, dC: 0xff88aa, dI: 1.40 },
+  };
+  const p = P[mode] || P.neutral;
+  _ambientLight.color.setHex(p.aC);  _ambientLight.intensity = p.aI;
+  _dirLight.color.setHex(p.dC);      _dirLight.intensity     = p.dI;
+}
+
+// ── Procedural idle ───────────────────────────────────────────────────────────
+
+function _proceduralIdle(vrm, time) {
+  const h = vrm.humanoid;
+  if (!h?.getNormalizedBoneNode) return;
+
+  if (time - _idleModeTime > 30) { _idleMode = (_idleMode + 1) % 3; _idleModeTime = time; }
+
+  // Body only — head/neck are owned entirely by _applyHeadTracking
+  const s = h.getNormalizedBoneNode('spine');
+  const c = h.getNormalizedBoneNode('chest');
+  if (_idleMode === 0) {
+    if (s) { s.rotation.z = Math.sin(time * 0.8) * 0.02; s.rotation.x = Math.sin(time * 0.4) * 0.01; }
+    if (c) c.rotation.x = Math.sin(time * 1.2) * 0.015;
+  } else if (_idleMode === 1) {
+    if (s) s.rotation.z = Math.sin(time * 0.6) * 0.012;
+  } else {
+    if (s) s.rotation.z = Math.sin(time * 0.4) * 0.01;
+  }
+
+  // Blink
+  if (time - _lastBlink >= _nextBlink) {
+    _lastBlink = time;
+    _nextBlink = 3 + Math.random() * 4;
+    if (vrm.expressionManager) {
+      try { vrm.expressionManager.setValue('blink', 1); } catch {}
+      setTimeout(() => { try { vrm.expressionManager?.setValue('blink', 0); } catch {} }, 120);
+    }
+  }
+}
+
+// ── Dizzy animation override ──────────────────────────────────────────────────
+
+function _applyDizzyAnim(vrm, elapsed) {
+  const t = elapsed - _dizzyStartTime;
+  const h = vrm.humanoid;
+  if (!h) return;
+  const hd = h.getNormalizedBoneNode('head');
+  if (hd) {
+    const decay = t > 2 ? Math.max(0, 1 - (t - 2) * 2) : 1;
+    hd.rotation.y = Math.sin(t * 8) * 0.5 * decay;
+    hd.rotation.z = Math.sin(t * 6) * 0.15 * decay;
+  }
+  try { vrm.expressionManager?.setValue('relaxed', Math.max(0, 0.8 - t * 0.2)); } catch {}
+}
+
+// ── Head tracking ─────────────────────────────────────────────────────────────
+
+// Resolved once and cached so we don't re-traverse every frame
+let _headBone = null;
+let _neckBone = null;
+let _boneLookupDone = false;
+
+function _findBones(vrm) {
+  if (_boneLookupDone) return;
+  _boneLookupDone = true;
+
+  const h = vrm.humanoid;
+  if (!h) return;
+
+  // Method 1: VRM1 normalized bones (best — rest pose is always 0,0,0)
+  _neckBone = h.getNormalizedBoneNode?.('neck');
+  _headBone = h.getNormalizedBoneNode?.('head');
+
+  // Method 2: direct humanBones property (works for some three-vrm builds)
+  if (!_headBone) _headBone = h.humanBones?.head?.node ?? h.humanBones?.Head?.node;
+  if (!_neckBone) _neckBone = h.humanBones?.neck?.node ?? h.humanBones?.Neck?.node;
+
+  // Method 3: getRawBoneNode (older three-vrm API)
+  if (!_headBone) _headBone = h.getRawBoneNode?.('head');
+  if (!_neckBone) _neckBone = h.getRawBoneNode?.('neck');
+
+  // Method 4: scene traversal by VRM0 canonical names then loose match
+  if (!_headBone || !_neckBone) {
+    vrm.scene.traverse(obj => {
+      const n = obj.name;
+      const nl = n.toLowerCase();
+      if (!_headBone && (n === 'J_Bip_C_Head' || (nl.includes('head') && !nl.includes('hair')))) _headBone = obj;
+      if (!_neckBone && (n === 'J_Bip_C_Neck' || nl.includes('neck'))) _neckBone = obj;
+    });
+  }
+
+  // Diagnostics (visible in DevTools console)
+  console.log('[companion] headBone:', _headBone?.name ?? 'NOT FOUND');
+  console.log('[companion] neckBone:', _neckBone?.name ?? 'NOT FOUND');
+  try {
+    const hb = h.humanBones;
+    if (hb) console.log('[companion] humanBones keys:', Object.keys(hb).join(', '));
+    else     console.log('[companion] humanoid keys:', Object.keys(h).join(', '));
+  } catch(_) {}
+}
+
+function _applyHeadTracking(vrm, time) {
+  _currentHeadY += (_targetHeadY - _currentHeadY) * 0.1;
+  _currentHeadX += (_targetHeadX - _currentHeadX) * 0.1;
+
+  _findBones(vrm);
+
+  const swayY = Math.sin(time * 0.5) * 0.03;
+  const swayX = Math.sin(time * 0.3) * 0.015;
+
+  // Do NOT set rotation.z — raw bones may have non-zero rest-pose z and we must not clobber it
+  if (_neckBone) {
+    _neckBone.rotation.y = _currentHeadY * 0.45 + swayY * 0.4;
+    _neckBone.rotation.x = _currentHeadX * 0.35;
+  }
+  if (_headBone) {
+    _headBone.rotation.y = _currentHeadY * 0.75 + swayY;
+    _headBone.rotation.x = _currentHeadX * 0.55 + swayX;
+  }
+}
+
+// ── Position lock (prevents spring bone / physics drift) ─────────────────────
+
+function lockVRMPosition() {
+  if (!_vrm) return;
+  _vrm.scene.position.set(0, 0, 0);
+  _vrm.scene.rotation.x = 0;
+  _vrm.scene.rotation.z = 0;
+  _vrm.scene.rotation.y = _modelRotY; // preserve user right-click rotation
+}
+
+// ── Debug overlay ─────────────────────────────────────────────────────────────
+
+function _updateDebug() {
+  const dbg = document.getElementById('debug-overlay');
+  if (!dbg || !dbg.classList.contains('show')) return;
+  dbg.innerHTML =
+    'VRM:' + (_vrm ? '✓' : '✗') + '<br>' +
+    'Hold:' + _isHolding + ' Drag:' + _dragging + '<br>' +
+    'tY:' + _targetHeadY.toFixed(2) + ' tX:' + _targetHeadX.toFixed(2) + '<br>' +
+    'cY:' + _currentHeadY.toFixed(2) + ' cX:' + _currentHeadX.toFixed(2) + '<br>' +
+    'Pos.y:' + (_vrm ? _vrm.scene.position.y.toFixed(3) : '-');
+}
+
+// ── IPC wiring ────────────────────────────────────────────────────────────────
+
+if (window.companionApi) {
+  window.companionApi.onSay(text => showBubble(text));
+
+  window.companionApi.onCursorPos(({ relX, relY }) => {
+    _targetHeadY = Math.max(-0.4, Math.min(0.4, relX / 400));
+    _targetHeadX = Math.max(-0.2, Math.min(0.15, relY / 600));
+  });
+
+  window.companionApi.onLoadModel(url => {
+    _vrmLoaded = false;
+    _loadVRMFromUrl(url).then(ok => { _vrmLoaded = ok; });
+  });
+
+  window.companionApi.onSwitch(id => {
+    setCompanionVisuals(id);
+    if (!_vrmLoaded) {
+      tryLoadVRM(id).then(ok => { _vrmLoaded = ok; });
+    }
+  });
+
+  window.companionApi.onReady(data => {
+    const id = data?.companionId || 'ciona';
+    setCompanionVisuals(id);
+    tryLoadVRM(id).then(ok => {
+      _vrmLoaded = ok;
+      if (!ok) document.getElementById('debug-fallback').style.display = 'flex';
+    });
+  });
+
+  window.companionApi.onSettings(settings => {
+    if (settings?.lighting) applyLighting(settings.lighting);
+  });
+}
+
+// Initial visuals before IPC fires
+setCompanionVisuals('ciona');
+</script>
+</body>
+</html>

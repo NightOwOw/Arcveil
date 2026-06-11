@@ -1,0 +1,263 @@
+/* themes.css — All theme presets. Applied by setting data-theme on <html> */
+
+/* ── ArcVeil Dark (default) ── */
+[data-theme="arcveil"] {
+  --av-bg-primary:    #0a0a0f;
+  --av-bg-secondary:  #0d0d18;
+  --av-bg-surface:    #111120;
+  --av-bg-elevated:   #161628;
+  --av-bg-hover:      rgba(255,255,255,0.04);
+  --av-canvas-bg:     #080810;
+  --av-input-bg:      rgba(255,255,255,0.05);
+  --av-accent:        #2d5af0;
+  --av-accent-soft:   rgba(45,90,240,0.14);
+  --av-accent-hover:  #4a73ff;
+  --av-accent-dim:    rgba(45,90,240,0.08);
+  --av-text-primary:  #f0eef8;
+  --av-text-secondary:#9896b0;
+  --av-text-muted:    #50506a;
+  --av-border:        rgba(255,255,255,0.07);
+  --av-border-strong: rgba(255,255,255,0.14);
+  --av-border-accent: rgba(45,90,240,0.30);
+  --av-grid-color:    rgba(255,255,255,0.028);
+}
+
+/* ── Light ── */
+[data-theme="light"] {
+  --av-bg-primary:    #f5f5f8;
+  --av-bg-secondary:  #ffffff;
+  --av-bg-surface:    #eaeaef;
+  --av-bg-elevated:   #ffffff;
+  --av-bg-hover:      rgba(0,0,0,0.04);
+  --av-canvas-bg:     #ebebef;
+  --av-input-bg:      #ffffff;
+  --av-accent:        #2d5af0;
+  --av-accent-soft:   rgba(45,90,240,0.10);
+  --av-accent-dim:    rgba(45,90,240,0.06);
+  --av-accent-hover:  #1a44d4;
+  --av-text-primary:  #1a1a2e;
+  --av-text-secondary:#4a4a6a;
+  --av-text-muted:    #8888a0;
+  --av-border:        rgba(0,0,0,0.1);
+  --av-border-strong: rgba(0,0,0,0.22);
+  --av-grid-color:    rgba(0,0,0,0.04);
+}
+
+/* ── Parchment / Manuscript ── */
+[data-theme="parchment"] {
+  --av-bg-primary:    #f4ede0;
+  --av-bg-secondary:  #efe6d0;
+  --av-bg-surface:    #e8dbc5;
+  --av-bg-elevated:   #faf5ea;
+  --av-bg-hover:      rgba(100,60,0,0.06);
+  --av-canvas-bg:     #e8dbc5;
+  --av-input-bg:      #faf5ea;
+  --av-accent:        #8b4513;
+  --av-accent-soft:   rgba(139,69,19,0.12);
+  --av-accent-hover:  #a0522d;
+  --av-text-primary:  #2c1a0e;
+  --av-text-secondary:#6b4226;
+  --av-text-muted:    #a0836a;
+  --av-border:        rgba(100,60,0,0.15);
+  --av-border-strong: rgba(100,60,0,0.3);
+  --av-grid-color:    rgba(100,60,0,0.06);
+  --av-font-ui:       'Georgia', serif;
+  --av-font-heading:  'Georgia', serif;
+}
+
+/* ── Sakura ── */
+[data-theme="sakura"] {
+  --av-bg-primary:    #fff0f5;
+  --av-bg-secondary:  #ffe6ee;
+  --av-bg-surface:    #fdd5e4;
+  --av-bg-elevated:   #fff8fb;
+  --av-bg-hover:      rgba(230,80,120,0.06);
+  --av-canvas-bg:     #fde8f0;
+  --av-input-bg:      #ffffff;
+  --av-accent:        #e0527a;
+  --av-accent-soft:   rgba(224,82,122,0.12);
+  --av-accent-hover:  #c93d65;
+  --av-text-primary:  #2d1520;
+  --av-text-secondary:#7a3550;
+  --av-text-muted:    #b07090;
+  --av-border:        rgba(200,80,120,0.15);
+  --av-border-strong: rgba(200,80,120,0.3);
+  --av-grid-color:    rgba(200,80,120,0.05);
+  --av-radius-sm:     6px;
+  --av-radius-md:     12px;
+  --av-radius-lg:     20px;
+}
+
+/* ── Starlight ── */
+[data-theme="starlight"] {
+  --av-bg-primary:    #0d1b3e;
+  --av-bg-secondary:  #0a1628;
+  --av-bg-surface:    #162040;
+  --av-bg-elevated:   #1a2550;
+  --av-bg-hover:      rgba(255,215,0,0.06);
+  --av-canvas-bg:     #080f22;
+  --av-input-bg:      rgba(255,215,0,0.05);
+  --av-accent:        #c9a227;
+  --av-accent-soft:   rgba(201,162,39,0.15);
+  --av-accent-hover:  #e6b830;
+  --av-text-primary:  #f0e6c8;
+  --av-text-secondary:#b8a880;
+  --av-text-muted:    #6a6040;
+  --av-border:        rgba(201,162,39,0.15);
+  --av-border-strong: rgba(201,162,39,0.3);
+  --av-grid-color:    rgba(255,215,0,0.04);
+  --av-font-heading:  'Georgia', serif;
+}
+
+/* ── Noir ── */
+[data-theme="noir"] {
+  --av-bg-primary:    #0a0a0a;
+  --av-bg-secondary:  #111111;
+  --av-bg-surface:    #1a1a1a;
+  --av-bg-elevated:   #181818;
+  --av-bg-hover:      rgba(255,255,255,0.04);
+  --av-canvas-bg:     #050505;
+  --av-input-bg:      #181818;
+  --av-accent:        #cc2200;
+  --av-accent-soft:   rgba(204,34,0,0.15);
+  --av-accent-hover:  #e63300;
+  --av-text-primary:  #e8e8e8;
+  --av-text-secondary:#a0a0a0;
+  --av-text-muted:    #555555;
+  --av-border:        rgba(255,255,255,0.06);
+  --av-border-strong: rgba(255,255,255,0.14);
+  --av-grid-color:    rgba(255,255,255,0.03);
+  --av-radius-sm:     2px;
+  --av-radius-md:     3px;
+  --av-radius-lg:     4px;
+  --av-font-ui:       'Courier New', monospace;
+  --av-font-heading:  'Courier New', monospace;
+}
+
+/* ── Forest ── */
+[data-theme="forest"] {
+  --av-bg-primary:    #1a2210;
+  --av-bg-secondary:  #1e2814;
+  --av-bg-surface:    #243018;
+  --av-bg-elevated:   #2a3820;
+  --av-bg-hover:      rgba(80,160,60,0.08);
+  --av-canvas-bg:     #141a0c;
+  --av-input-bg:      rgba(80,160,60,0.06);
+  --av-accent:        #5a9e3a;
+  --av-accent-soft:   rgba(90,158,58,0.15);
+  --av-accent-hover:  #72b84e;
+  --av-text-primary:  #dce8c8;
+  --av-text-secondary:#a0b880;
+  --av-text-muted:    #607050;
+  --av-border:        rgba(90,160,60,0.14);
+  --av-border-strong: rgba(90,160,60,0.28);
+  --av-grid-color:    rgba(80,160,60,0.04);
+}
+
+/* ── Neon ── */
+[data-theme="neon"] {
+  --av-bg-primary:    #080816;
+  --av-bg-secondary:  #0c0c20;
+  --av-bg-surface:    #101028;
+  --av-bg-elevated:   #14142e;
+  --av-bg-hover:      rgba(0,255,180,0.05);
+  --av-canvas-bg:     #040410;
+  --av-input-bg:      rgba(0,255,180,0.04);
+  --av-accent:        #00ffb4;
+  --av-accent-soft:   rgba(0,255,180,0.12);
+  --av-accent-hover:  #33ffc4;
+  --av-text-primary:  #e0ffe8;
+  --av-text-secondary:#80c0a0;
+  --av-text-muted:    #406050;
+  --av-border:        rgba(0,255,180,0.12);
+  --av-border-strong: rgba(0,255,180,0.25);
+  --av-grid-color:    rgba(0,255,180,0.04);
+  --av-radius-sm:     2px;
+  --av-radius-md:     4px;
+}
+
+/* ── Cloud ── */
+[data-theme="cloud"] {
+  --av-bg-primary:    #ffffff;
+  --av-bg-secondary:  #f8f8fa;
+  --av-bg-surface:    #f0f0f5;
+  --av-bg-elevated:   #ffffff;
+  --av-bg-hover:      rgba(0,0,0,0.03);
+  --av-canvas-bg:     #f4f4f8;
+  --av-input-bg:      #ffffff;
+  --av-accent:        #5b6af0;
+  --av-accent-soft:   rgba(91,106,240,0.1);
+  --av-accent-hover:  #4455e0;
+  --av-text-primary:  #1a1a2e;
+  --av-text-secondary:#505060;
+  --av-text-muted:    #a0a0b0;
+  --av-border:        rgba(0,0,0,0.08);
+  --av-border-strong: rgba(0,0,0,0.18);
+  --av-grid-color:    rgba(0,0,0,0.03);
+}
+
+/* ── Mystic ── */
+[data-theme="mystic"] {
+  --av-bg-primary:    #120820;
+  --av-bg-secondary:  #180a2a;
+  --av-bg-surface:    #200e38;
+  --av-bg-elevated:   #1c0c30;
+  --av-bg-hover:      rgba(180,100,255,0.07);
+  --av-canvas-bg:     #0c0416;
+  --av-input-bg:      rgba(180,100,255,0.05);
+  --av-accent:        #a855f7;
+  --av-accent-soft:   rgba(168,85,247,0.15);
+  --av-accent-hover:  #c084fc;
+  --av-text-primary:  #f0e8ff;
+  --av-text-secondary:#c0a0e0;
+  --av-text-muted:    #706090;
+  --av-border:        rgba(168,85,247,0.14);
+  --av-border-strong: rgba(168,85,247,0.28);
+  --av-grid-color:    rgba(168,85,247,0.04);
+}
+
+/* ── Terminal ── */
+[data-theme="terminal"] {
+  --av-bg-primary:    #000000;
+  --av-bg-secondary:  #0a0a0a;
+  --av-bg-surface:    #111111;
+  --av-bg-elevated:   #0d0d0d;
+  --av-bg-hover:      rgba(0,255,0,0.04);
+  --av-canvas-bg:     #000000;
+  --av-input-bg:      #0a0a0a;
+  --av-accent:        #00cc00;
+  --av-accent-soft:   rgba(0,204,0,0.12);
+  --av-accent-hover:  #00ee00;
+  --av-text-primary:  #00dd00;
+  --av-text-secondary:#008800;
+  --av-text-muted:    #004400;
+  --av-border:        rgba(0,204,0,0.2);
+  --av-border-strong: rgba(0,204,0,0.4);
+  --av-grid-color:    rgba(0,204,0,0.04);
+  --av-font-ui:       'Courier New', monospace;
+  --av-font-heading:  'Courier New', monospace;
+  --av-font-editor:   'Courier New', monospace;
+  --av-radius-sm:     0px;
+  --av-radius-md:     0px;
+  --av-radius-lg:     2px;
+}
+
+/* ── Sketch ── */
+[data-theme="sketch"] {
+  --av-bg-primary:    #fffef8;
+  --av-bg-secondary:  #f8f7f0;
+  --av-bg-surface:    #f0efe8;
+  --av-bg-elevated:   #ffffff;
+  --av-bg-hover:      rgba(40,40,40,0.04);
+  --av-canvas-bg:     #f5f4ed;
+  --av-input-bg:      #ffffff;
+  --av-accent:        #2d2d2d;
+  --av-accent-soft:   rgba(40,40,40,0.08);
+  --av-accent-hover:  #1a1a1a;
+  --av-text-primary:  #1a1a1a;
+  --av-text-secondary:#4a4a4a;
+  --av-text-muted:    #8a8a8a;
+  --av-border:        rgba(40,40,40,0.15);
+  --av-border-strong: rgba(40,40,40,0.3);
+  --av-grid-color:    rgba(40,40,40,0.04);
+}
