@@ -4,7 +4,7 @@
 
 ArcVeil is a local-first desktop application for creative writers and world-builders. It brings together every tool you need — relationship maps, character profiles, a writing editor, fantasy map generation, story structure, and AI-like companions — into a single offline-capable workspace.
 
-![ArcVeil Screenshot](screenshots/screenshot.png)
+![ArcVeil Screenshot](screenshots/01-lauch.png)
 
 ---
 
