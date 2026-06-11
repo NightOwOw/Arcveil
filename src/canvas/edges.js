@@ -24,10 +24,17 @@ let _connecting = null; // { fromId, tempLine }
 
 export function initEdges(svg) {
   _svg = svg;
+  // Fix: give SVG explicit large size so edges render even when canvas-inner has 0 computed size
+  if (_svg) {
+    _svg.style.width  = '10000px';
+    _svg.style.height = '10000px';
+  }
   EventBus.on('nodes:updated',  renderEdges);
   EventBus.on('edges:updated',  renderEdges);
   EventBus.on('canvas:node-moved', renderEdges);
   EventBus.on('canvas:start-connect', (fromId) => startEdgeConnect(fromId));
+  EventBus.on('canvas:connect-drag-start', ({ fromId, clientX, clientY }) =>
+    startEdgeConnectDrag(fromId, clientX, clientY));
 }
 
 export function renderEdges() {
@@ -105,6 +112,7 @@ function _buildEdge(e, from, to) {
 export function startEdgeConnect(fromId) {
   _connecting = { fromId };
   window._avConnecting = true;
+  window._avCanvasMode = 'select';
   document.body.style.cursor = 'crosshair';
 
   EventBus.emit('status:message', 'Click a node to connect — Escape to cancel');
@@ -135,4 +143,157 @@ function _stopConnect(onClick, onKey) {
   document.removeEventListener('keydown', onKey);
   EventBus.emit('canvas:mode-reset');
   EventBus.emit('status:message', '');
+}
+
+// ── Connect drag (toolbar connect mode) ───────────────────────────────────────
+
+export function startEdgeConnectDrag(fromId, clientX, clientY) {
+  const fromNode = state.nodes.find(n => n.id === fromId);
+  if (!fromNode || !_svg) return;
+
+  const fromX = fromNode.x + (fromNode.size || 52) / 2;
+  const fromY = fromNode.y + (fromNode.size || 52) / 2;
+
+  // Rubber-band temp line
+  const tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  tempLine.setAttribute('x1', fromX);
+  tempLine.setAttribute('y1', fromY);
+  tempLine.setAttribute('x2', fromX);
+  tempLine.setAttribute('y2', fromY);
+  tempLine.setAttribute('stroke', '#7c5cbf');
+  tempLine.setAttribute('stroke-width', '2');
+  tempLine.setAttribute('stroke-dasharray', '7,3');
+  tempLine.style.opacity = '0.75';
+  tempLine.style.pointerEvents = 'none';
+  _svg.appendChild(tempLine);
+
+  const srcEl = document.querySelector(`.node[data-id="${fromId}"]`);
+  if (srcEl) srcEl.style.outline = '2px solid #7c5cbf';
+
+  let hoveredEl = null;
+
+  function toCanvas(cx, cy) {
+    const container = document.getElementById('view-canvas');
+    if (!container) return { x: cx, y: cy };
+    const r = container.getBoundingClientRect();
+    return {
+      x: (cx - r.left - state.view.x) / state.view.scale,
+      y: (cy - r.top  - state.view.y) / state.view.scale,
+    };
+  }
+
+  function onMove(e) {
+    const { x, y } = toCanvas(e.clientX, e.clientY);
+    tempLine.setAttribute('x2', x);
+    tempLine.setAttribute('y2', y);
+
+    if (hoveredEl) { hoveredEl.style.outline = ''; hoveredEl = null; }
+    const target = e.target.closest?.('.node');
+    if (target && target.dataset.id && target.dataset.id !== fromId) {
+      hoveredEl = target;
+      target.style.outline = '2px dashed #7c5cbf';
+    }
+  }
+
+  function onUp(e) {
+    cleanup();
+    const target = e.target.closest?.('.node');
+    if (target && target.dataset.id && target.dataset.id !== fromId) {
+      _promptEdgeLabel(fromId, target.dataset.id, e.clientX, e.clientY);
+    }
+  }
+
+  function cleanup() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup',  onUp);
+    tempLine.remove();
+    if (srcEl) srcEl.style.outline = '';
+    if (hoveredEl) { hoveredEl.style.outline = ''; hoveredEl = null; }
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup',  onUp);
+}
+
+export function promptEdgeLabel(fromId, toId, clientX, clientY) {
+  _promptEdgeLabel(fromId, toId, clientX, clientY);
+}
+
+function _promptEdgeLabel(fromId, toId, clientX, clientY) {
+  const from = state.nodes.find(n => n.id === fromId);
+  const to   = state.nodes.find(n => n.id === toId);
+  if (!from || !to) return;
+
+  const existing = state.edges.find(e =>
+    (e.from === fromId && e.to === toId) ||
+    (e.from === toId   && e.to === fromId));
+  if (existing) return;
+
+  const px = Math.min(clientX + 10, window.innerWidth  - 270);
+  const py = Math.min(clientY + 10, window.innerHeight - 190);
+
+  const popup = document.createElement('div');
+  popup.style.cssText = `
+    position:fixed;left:${px}px;top:${py}px;z-index:10000;
+    background:var(--av-bg-elevated);border:1px solid var(--av-border-strong);
+    border-radius:var(--av-radius-lg);padding:14px;width:250px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.5);
+  `;
+
+  const presets = ['Ally','Enemy','Mentor','Rival','Family','Friend'];
+  popup.innerHTML = `
+    <div style="font-size:12px;font-weight:600;color:var(--av-text-primary);margin-bottom:3px;">${from.name} → ${to.name}</div>
+    <div style="font-size:11px;color:var(--av-text-muted);margin-bottom:8px;">Relationship label (optional)</div>
+    <input id="_elInp" type="text" placeholder="e.g. Mentor, Ally, Enemy..."
+      style="width:100%;padding:6px 8px;border-radius:var(--av-radius-sm);font-size:12px;
+             border:1px solid var(--av-border);background:var(--av-bg-base);
+             color:var(--av-text-primary);outline:none;box-sizing:border-box;margin-bottom:8px;">
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">
+      ${presets.map(p =>
+        `<button class="_elChip" data-p="${p}"
+          style="padding:3px 8px;border-radius:10px;border:1px solid var(--av-border);
+                 background:var(--av-bg-base);color:var(--av-text-muted);
+                 cursor:pointer;font-size:11px;">${p}</button>`
+      ).join('')}
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button id="_elSkip" style="flex:1;padding:6px;border-radius:var(--av-radius-sm);
+        border:1px solid var(--av-border);background:transparent;
+        color:var(--av-text-muted);cursor:pointer;font-size:11px;">Skip</button>
+      <button id="_elOk" style="flex:2;padding:6px;border-radius:var(--av-radius-sm);
+        border:none;background:var(--av-accent,#7c5cbf);color:#fff;
+        cursor:pointer;font-size:11px;font-weight:600;">Connect</button>
+    </div>
+  `;
+  document.body.appendChild(popup);
+
+  const inp = popup.querySelector('#_elInp');
+  setTimeout(() => inp?.focus(), 30);
+
+  popup.querySelectorAll('._elChip').forEach(btn => {
+    btn.addEventListener('click', () => { if (inp) inp.value = btn.dataset.p; });
+  });
+
+  function doConnect(label) {
+    import('../state.js').then(({ uid, addEdge }) => {
+      addEdge({ id: uid(), from: fromId, to: toId, label: label || '', style: 'solid', color: '#7c5cbf', arrow: true });
+    });
+    popup.remove();
+    if (onOut) document.removeEventListener('mousedown', onOut);
+  }
+
+  popup.querySelector('#_elOk').addEventListener('click', () => doConnect(inp?.value.trim() || ''));
+  popup.querySelector('#_elSkip').addEventListener('click', () => doConnect(''));
+  inp?.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  doConnect(inp.value.trim());
+    if (e.key === 'Escape') { popup.remove(); document.removeEventListener('mousedown', onOut); }
+  });
+
+  let onOut;
+  setTimeout(() => {
+    onOut = e => {
+      if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('mousedown', onOut); }
+    };
+    document.addEventListener('mousedown', onOut);
+  }, 150);
 }

@@ -91,6 +91,10 @@ function _bindNodeEvents(el, id) {
   el.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (window._avCanvasMode === 'connect') {
+      EventBus.emit('canvas:connect-drag-start', { fromId: id, clientX: e.clientX, clientY: e.clientY });
+      return;
+    }
     _startDrag(el, id, e);
   });
   el.addEventListener('click', e => {
