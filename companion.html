@@ -209,7 +209,7 @@
   <div id="hold-indicator"></div>
   <div id="hold-hint">Hold + drag to move &nbsp;·&nbsp; Ctrl+F to load model</div>
   <div id="loading-toast"></div>
-  <div id="debug-overlay" class="show"></div>
+  <div id="debug-overlay"></div>
 
 <script>
 'use strict';
@@ -838,7 +838,7 @@ if (window.companionApi) {
 
   window.companionApi.onCursorPos(({ relX, relY }) => {
     _targetHeadY = Math.max(-0.4, Math.min(0.4, relX / 400));
-    _targetHeadX = Math.max(-0.2, Math.min(0.15, relY / 600));
+    _targetHeadX = Math.max(-0.2, Math.min(0.15, -relY / 600));
   });
 
   window.companionApi.onLoadModel(url => {

@@ -92,9 +92,16 @@ function createMainWindow() {
     mainWindow.webContents.send('app:before-close');
   });
 
+  // Minimize/restore companion with main window
+  mainWindow.on('minimize', () => { if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide(); });
+  mainWindow.on('restore',  () => { if (companionWindow && !companionWindow.isDestroyed()) companionWindow.show(); });
+
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.send('app:ready');
   });
+
+  // Close DevTools immediately if opened (prevents accidental Inspect Element)
+  mainWindow.webContents.on('devtools-opened', () => mainWindow.webContents.closeDevTools());
 }
 
 const _appStartTime = Date.now();
@@ -120,19 +127,25 @@ app.on('will-quit', () => {
 // ── Companion window ──────────────────────────────────────────────────────────
 
 function createCompanionWindow() {
-  const { width: sw, height: sh } = require('electron').screen.getPrimaryDisplay().workAreaSize;
+  // Position inside mainWindow's bottom-right corner
+  const [mx, my] = mainWindow.getPosition();
+  const [mw, mh] = mainWindow.getSize();
+  const cw = 220, ch = 380;
+  const cx = mx + mw - cw - 20;
+  const cy = my + mh - ch - 10;
+
   companionWindow = new BrowserWindow({
-    width: 220,
-    height: 380,
-    x: sw - 230,
-    y: sh - 390,
+    width: cw,
+    height: ch,
+    x: cx,
+    y: cy,
     transparent: true,
     frame: false,
-    alwaysOnTop: true,
+    parent: mainWindow,   // stays above app, below other apps automatically
+    alwaysOnTop: false,
     skipTaskbar: true,
     focusable: false,
     hasShadow: false,
-    type: 'toolbar',
     resizable: false,
     show: false,
     webPreferences: {
@@ -145,12 +158,13 @@ function createCompanionWindow() {
   companionWindow.loadFile('companion.html');
   // Start click-through by default; renderer toggles via IPC when mouse enters interactive area
   companionWindow.setIgnoreMouseEvents(true, { forward: true });
-  companionWindow.setVisibleOnAllWorkspaces(true);
+
+  // Close DevTools immediately if opened in companion window
+  companionWindow.webContents.on('devtools-opened', () => companionWindow.webContents.closeDevTools());
 
   companionWindow.once('ready-to-show', () => {
     companionWindow.show();
     console.log('[companion] Window shown');
-    companionWindow.webContents.openDevTools({ mode: 'detach' }); // TEMP: remove after debugging
     companionWindow.webContents.send('companion:ready', { companionId: 'ciona' });
   });
 
