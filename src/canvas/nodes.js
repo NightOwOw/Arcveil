@@ -31,6 +31,8 @@ export function renderNodes() {
   const keep = new Set();
 
   for (const n of state.nodes) {
+    // Nodes created from the World Codex with "show on canvas" unticked
+    if (n.showOnCanvas === false) { existing.get(n.id)?.remove(); continue; }
     keep.add(n.id);
     let el = existing.get(n.id);
     if (!el) {
@@ -53,8 +55,9 @@ function _createElement(n) {
 }
 
 function _updateElement(el, n) {
-  el.style.left = n.x + 'px';
-  el.style.top  = n.y + 'px';
+  el.style.left  = n.x + 'px';
+  el.style.top   = n.y + 'px';
+  el.style.width = (n.size || 52) + 'px';
   el.classList.toggle('selected', state.selectedNodes.has(n.id));
 
   if (n.type === 'media') {
@@ -67,9 +70,13 @@ function _updateElement(el, n) {
   const color = n.color || cfg.defaultColor;
   const letter = n.letter || (n.name || '?').charAt(0).toUpperCase();
 
+  const inner = n.nodeImage
+    ? `<img src="${n.nodeImage}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;pointer-events:none">`
+    : `<span class="node-letter" style="font-size:${Math.round(size*0.36)}px">${letter}</span>`;
+
   el.innerHTML = `
-    <div class="node-shape node-${cfg.shape}" style="width:${size}px;height:${size}px;background:${color};">
-      <span class="node-letter" style="font-size:${Math.round(size*0.36)}px">${letter}</span>
+    <div class="node-shape node-${cfg.shape}" style="width:${size}px;height:${size}px;background:${color};overflow:hidden;">
+      ${inner}
     </div>
     <div class="node-name">${n.name || ''}</div>
   `;
@@ -91,10 +98,6 @@ function _bindNodeEvents(el, id) {
   el.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    if (window._avCanvasMode === 'connect') {
-      EventBus.emit('canvas:connect-drag-start', { fromId: id, clientX: e.clientX, clientY: e.clientY });
-      return;
-    }
     _startDrag(el, id, e);
   });
   el.addEventListener('click', e => {
@@ -123,9 +126,14 @@ function _startDrag(el, id, startE) {
   const node = state.nodes.find(n => n.id === id);
   if (!node) return;
 
+  // Multi-drag: move all selected nodes together if this one is selected
+  const isMulti = state.selectedNodes.has(id) && state.selectedNodes.size > 1;
+  const dragGroup = isMulti
+    ? state.nodes.filter(n => state.selectedNodes.has(n.id)).map(n => ({ node: n, ox: n.x, oy: n.y }))
+    : [{ node, ox: node.x, oy: node.y }];
+
   const zoom = getZoom();
   let startX = startE.clientX, startY = startE.clientY;
-  let nx = node.x, ny = node.y;
   let moved = false;
 
   el.classList.add('dragging');
@@ -134,10 +142,12 @@ function _startDrag(el, id, startE) {
     moved = true;
     const dx = (e.clientX - startX) / zoom;
     const dy = (e.clientY - startY) / zoom;
-    node.x = Math.round(nx + dx);
-    node.y = Math.round(ny + dy);
-    el.style.left = node.x + 'px';
-    el.style.top  = node.y + 'px';
+    for (const { node: n, ox, oy } of dragGroup) {
+      n.x = Math.round(ox + dx);
+      n.y = Math.round(oy + dy);
+      const nodeEl = _container?.querySelector(`.node[data-id="${n.id}"]`);
+      if (nodeEl) { nodeEl.style.left = n.x + 'px'; nodeEl.style.top = n.y + 'px'; }
+    }
     EventBus.emit('canvas:node-moved', id);
   }
 
@@ -145,10 +155,7 @@ function _startDrag(el, id, startE) {
     el.classList.remove('dragging');
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
-    if (moved) {
-      const { saveHistory } = require('../state.js');
-      import('../state.js').then(m => m.saveHistory());
-    }
+    if (moved) import('../state.js').then(m => m.saveHistory());
   }
 
   document.addEventListener('mousemove', onMove);

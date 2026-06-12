@@ -21,8 +21,7 @@
   <!-- Titlebar -->
   <div id="titlebar">
     <div id="titlebar-logo">
-      <div class="tl-logomark">A</div>
-      <span class="tl-name">ArcVeil</span>
+      <img id="titlebar-logo-img" src="assets/icons/app_logo_white.png" style="height:28px;object-fit:contain;display:block">
     </div>
     <div id="titlebar-project">
       <span class="tl-sep">—</span>
@@ -34,6 +33,15 @@
       <button class="wc-btn" id="wc-max"   title="Maximize">□</button>
       <button class="wc-btn" id="wc-close" title="Close">✕</button>
     </div>
+  </div>
+
+  <!-- AU Mode Banner (shown when an AU is active) -->
+  <div id="au-banner" style="display:none;padding:5px 16px;background:var(--av-accent-soft);border-bottom:1px solid var(--av-border-accent);flex-shrink:0;align-items:center;gap:10px;font-size:12px;z-index:90">
+    <div id="au-banner-dot" style="width:8px;height:8px;border-radius:50%;flex-shrink:0"></div>
+    <span style="font-weight:600;color:var(--av-text-secondary)">AU Mode:</span>
+    <span id="au-banner-name" style="color:var(--av-accent);font-weight:700"></span>
+    <span style="color:var(--av-text-muted);font-size:10px;flex:1">Character profiles show AU overrides. Canvas reflects AU snapshot if saved.</span>
+    <button class="btn-sm" id="au-banner-exit" style="font-size:11px">Exit AU</button>
   </div>
 
   <!-- Toolbar -->
@@ -63,6 +71,9 @@
     </button>
     <button class="tb-btn node-fact" data-add-type="faction" title="Add Faction">
       <svg viewBox="0 0 16 16"><path d="M8 1l2 5.5H15l-4.5 3.3 1.7 5.2L8 12l-4.2 3 1.7-5.2L1 6.5h5L8 1z"/></svg>Faction
+    </button>
+    <button class="tb-btn node-item" data-add-type="item" title="Add Item">
+      <svg viewBox="0 0 16 16"><path d="M8 1.5l3.5 3.5-5.5 9-3.5-3.5 5.5-9z"/><path d="M11.5 5L14 7.5M4 11l1.5 1.5"/></svg>Item
     </button>
     <button class="tb-btn node-event" data-add-type="event" title="Add Event">
       <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M5 2v2M11 2v2M2 7h12"/></svg>Event
@@ -106,7 +117,7 @@
       <!-- Relationship Map Canvas -->
       <div id="view-canvas" class="view" style="position:relative;overflow:hidden">
         <div id="canvas-inner" style="position:absolute;transform-origin:0 0">
-          <svg id="edges-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible"></svg>
+          <svg id="edges-svg" style="position:absolute;top:0;left:0;pointer-events:none;overflow:visible"></svg>
         </div>
         <!-- Canvas toolbar overlay -->
         <div id="canvas-toolbar">
@@ -116,6 +127,13 @@
           <button class="ct-btn" id="ct-fit" title="Fit all (F)"><svg viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg> Fit</button>
           <button class="ct-btn" id="ct-zoom-in"  title="Zoom in (+)"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M5 7h4M7 5v4M10.5 10.5l3 3"/></svg></button>
           <button class="ct-btn" id="ct-zoom-out" title="Zoom out (-)"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M5 7h4M10.5 10.5l3 3"/></svg></button>
+        </div>
+        <!-- Connect-mode instruction banner -->
+        <div id="connect-banner">
+          <span id="connect-banner-icon">↔</span>
+          <span id="connect-banner-from"></span>
+          <span id="connect-banner-msg">Click a target node to connect</span>
+          <span class="cb-esc">Esc to cancel</span>
         </div>
         <!-- Minimap -->
         <div id="minimap">
@@ -135,6 +153,9 @@
 
       <!-- Story Structure -->
       <div id="view-story" class="view"></div>
+
+      <!-- Universes / AU Manager -->
+      <div id="view-universes" class="view"></div>
 
       <!-- Lore & World -->
       <div id="view-lore" class="view"></div>

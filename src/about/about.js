@@ -1,5 +1,6 @@
 // about.js — About view: app info, credits, version, keyboard shortcuts
 import { state, EventBus } from '../state.js';
+import { SHORTCUTS, getKey, setKey, resetKey, recordEvent, findConflict, setKeySwap } from '../shortcuts.js';
 
 export function renderAboutView(container) {
   const view = container || document.getElementById('view-about');
@@ -14,8 +15,7 @@ async function _render(view) {
   view.innerHTML = `
     <div class="about-layout">
       <div class="about-hero">
-        <div class="about-logo-mark">✦</div>
-        <h1 class="about-title">ArcVeil</h1>
+        <img id="about-logo-img" src="assets/icons/app_logo_white.png" style="height:64px;object-fit:contain;margin-bottom:10px;display:block;margin-inline:auto">
         <p class="about-tagline">Your story arc. Your world unveiled.</p>
         <div class="about-version">v${version}</div>
         <div class="about-sub">Local-first creative writing &amp; worldbuilding studio</div>
@@ -46,68 +46,52 @@ async function _render(view) {
         </div>
 
         <div class="about-section">
-          <div class="about-section-head">Keyboard Shortcuts</div>
+          <div class="about-section-head">Keyboard Shortcuts <span style="font-size:9px;font-weight:400;color:var(--av-text-muted);text-transform:none;letter-spacing:0;margin-left:6px">Click a key to customize</span></div>
           <div class="about-shortcut-table">
             <div class="about-shortcut-group">
               <div class="about-shortcut-group-head">Navigation</div>
               ${_kb([
-                ['1', 'Dashboard'],
-                ['2', 'Canvas'],
-                ['3', 'Characters'],
-                ['4', 'Writing'],
-                ['5', 'World'],
-                ['Ctrl+,', 'Settings'],
+                ['nav-dashboard',  'Dashboard'],
+                ['nav-canvas',     'Canvas'],
+                ['nav-characters', 'Characters'],
+                ['nav-writing',    'Writing'],
+                ['nav-world',      'World'],
+                ['nav-settings',   'Settings'],
               ])}
             </div>
             <div class="about-shortcut-group">
               <div class="about-shortcut-group-head">Project</div>
               ${_kb([
-                ['Ctrl+N', 'New project'],
-                ['Ctrl+O', 'Open project'],
-                ['Ctrl+S', 'Save project'],
-                ['Ctrl+Shift+S', 'Save as…'],
-                ['Ctrl+Z', 'Undo'],
-                ['Ctrl+Y', 'Redo'],
+                ['proj-new',     'New project'],
+                ['proj-open',    'Open project'],
+                ['proj-save',    'Save project'],
+                ['proj-save-as', 'Save as…'],
+                ['proj-undo',    'Undo'],
+                ['proj-redo',    'Redo'],
               ])}
             </div>
             <div class="about-shortcut-group">
-              <div class="about-shortcut-group-head">Overlays (Global)</div>
+              <div class="about-shortcut-group-head">Overlays (Global — not remappable)</div>
               ${_kb([
-                ['Ctrl+Shift+Space', 'Quick Summon'],
-                ['Ctrl+Shift+C', 'Toggle Companion'],
-                ['Ctrl+Shift+H', 'Toggle HUD'],
-                ['Ctrl+Shift+E', 'Toggle Edge Panel'],
-                ['Ctrl+Shift+N', 'Quick Capture'],
-                ['Ctrl+Shift+W', 'Word Count'],
+                [null, 'Ctrl+Shift+Space', 'Quick Summon'],
+                [null, 'Ctrl+Shift+C',     'Toggle Companion'],
+                [null, 'Ctrl+Shift+H',     'Toggle HUD'],
+                [null, 'Ctrl+Shift+E',     'Toggle Edge Panel'],
+                [null, 'Ctrl+Shift+N',     'Quick Capture'],
+                [null, 'Ctrl+Shift+W',     'Word Count'],
               ])}
             </div>
             <div class="about-shortcut-group">
               <div class="about-shortcut-group-head">Canvas</div>
               ${_kb([
-                ['N', 'Add character node'],
-                ['F', 'Fit all nodes'],
-                ['Del / Backspace', 'Delete selected'],
-                ['Alt+Drag', 'Pan canvas'],
-                ['Scroll', 'Zoom'],
-                ['Dbl-click', 'New node at position'],
+                ['canvas-add-node', 'Add character node'],
+                ['canvas-fit',      'Fit all nodes'],
+                ['canvas-delete',   'Delete selected'],
+                [null, 'Alt+Drag',  'Pan canvas'],
+                [null, 'Scroll',    'Zoom'],
+                [null, 'Dbl-click', 'New node at position'],
               ])}
             </div>
-          </div>
-        </div>
-
-        <div class="about-section">
-          <div class="about-section-head">Phase Progress</div>
-          <div class="about-phases">
-            ${_phase(true, '1', 'Foundation', 'Electron shell, canvas engine, themes, state')}
-            ${_phase(true, '2', 'Characters', 'Profiles, portrait, traits, backstory, gallery')}
-            ${_phase(true, '3', 'Writing Hub', 'Editor, chapters, annotations, focus mode, versions')}
-            ${_phase(true, '4', 'Story Structure', 'Timeline, scenes, arcs, beats, pacing meter')}
-            ${_phase(true, '5', 'Map Generator', 'Fantasy map BFS, rivers, provinces, SVG render')}
-            ${_phase(true, '6', 'World & Lore', 'Locations, factions, bestiary, items, calendar')}
-            ${_phase(true, '7', 'Companion System', 'VRM/2D, Ciona & Somvora, awareness, tracker')}
-            ${_phase(true, '8', 'Overlay System', 'HUD, edge panel, quick summon, tray, global hotkeys')}
-            ${_phase(true, '9', 'Settings', 'Themes, typography, companion, AI mode, voice')}
-            ${_phase(true, '10', 'Distribution', 'Auto-updater, offline license, build pipeline')}
           </div>
         </div>
 
@@ -129,24 +113,120 @@ async function _render(view) {
     if (dir) window.api?.showFolder?.(dir);
   });
   view.querySelector('#about-settings-link')?.addEventListener('click', () => EventBus.emit('nav:changed', 'settings'));
+
+  // Bind shortcut customization clicks
+  view.querySelectorAll('.about-key.customizable[data-id]').forEach(el => {
+    el.addEventListener('click', () => _showShortcutModal(el.dataset.id, view));
+  });
+
+  // Swap logo when theme changes
+  const _syncAboutLogo = (themeId) => {
+    const logoEl = view.querySelector('#about-logo-img');
+    if (!logoEl) return;
+    const isDark = !themeId || themeId === 'arcveil';
+    logoEl.src = isDark ? 'assets/icons/app_logo_white.png' : 'assets/icons/app_logo.png';
+  };
+  EventBus.on('theme:changed', _syncAboutLogo);
+  _syncAboutLogo(document.documentElement.getAttribute('data-theme'));
 }
 
+// pairs: [id_or_null, label_or_fixedKey, optional_label]
+// If id matches a SHORTCUT → customizable, key comes from getKey(id)
+// If id is null → [null, fixedKey, label] — static display
 function _kb(pairs) {
-  return pairs.map(([key, label]) => `
-    <div class="about-shortcut-row">
-      <span class="about-key">${key}</span>
-      <span class="about-shortcut-label">${label}</span>
-    </div>
-  `).join('');
+  return pairs.map(entry => {
+    const id    = entry[0];
+    const sc    = id ? SHORTCUTS.find(s => s.id === id) : null;
+    const key   = sc ? getKey(id) : entry[1];
+    const label = sc ? entry[1] : entry[2];
+    if (sc) {
+      return `
+        <div class="about-shortcut-row">
+          <span class="about-key customizable" data-id="${id}" title="Click to customize">${key}</span>
+          <span class="about-shortcut-label">${label}</span>
+        </div>`;
+    }
+    return `
+      <div class="about-shortcut-row">
+        <span class="about-key">${key}</span>
+        <span class="about-shortcut-label">${label}</span>
+      </div>`;
+  }).join('');
 }
 
-function _phase(done, num, name, desc) {
-  return `
-    <div class="about-phase${done ? ' done' : ''}">
-      <span class="about-phase-icon">${done ? '✅' : '⏳'}</span>
-      <span class="about-phase-num">Phase ${num}</span>
-      <span class="about-phase-name">${name}</span>
-      <span class="about-phase-desc">${desc}</span>
+function _showShortcutModal(id, view) {
+  const sc = SHORTCUTS.find(s => s.id === id);
+  if (!sc) return;
+
+  let pending = null;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'sc-modal-overlay';
+  overlay.innerHTML = `
+    <div class="sc-modal">
+      <div class="sc-modal-title">Customize shortcut</div>
+      <div class="sc-modal-label">${sc.label}</div>
+      <div class="sc-modal-hint">Press a new key combination…</div>
+      <div class="sc-modal-preview" id="sc-preview">${getKey(id)}</div>
+      <div class="sc-modal-conflict" id="sc-conflict"></div>
+      <div class="sc-modal-btns">
+        <button class="btn-primary" id="sc-save" style="font-size:11px;padding:5px 14px">Save</button>
+        <button class="btn-sm" id="sc-reset">Reset default</button>
+        <button class="btn-sm" id="sc-cancel">Cancel</button>
+      </div>
     </div>
   `;
+
+  document.body.appendChild(overlay);
+
+  const conflictEl = overlay.querySelector('#sc-conflict');
+
+  const onKey = (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.key === 'Escape') { _close(); return; }
+    const combo = recordEvent(e);
+    if (!combo) return;
+    pending = combo;
+
+    const preview = overlay.querySelector('#sc-preview');
+    if (preview) preview.textContent = combo;
+
+    // Real-time conflict detection
+    const conflict = findConflict(id, combo);
+    if (conflict) {
+      const displaced = getKey(id);
+      conflictEl.textContent =
+        `⚠ Already used by "${conflict.label}". Saving will swap — that action moves to "${displaced}".`;
+      conflictEl.style.display = 'block';
+    } else {
+      conflictEl.style.display = 'none';
+    }
+  };
+
+  // Capture phase — fires before the app's keydown handler so shortcuts don't trigger
+  document.addEventListener('keydown', onKey, { capture: true });
+
+  const _close = () => {
+    document.removeEventListener('keydown', onKey, { capture: true });
+    overlay.remove();
+  };
+
+  const _refresh = () => {
+    view.querySelectorAll('.about-key.customizable[data-id]').forEach(el => {
+      el.textContent = getKey(el.dataset.id);
+    });
+  };
+
+  overlay.querySelector('#sc-save').onclick = () => {
+    if (pending) { setKeySwap(id, pending); _refresh(); }
+    _close();
+  };
+  overlay.querySelector('#sc-reset').onclick = () => {
+    resetKey(id); _refresh(); _close();
+  };
+  overlay.querySelector('#sc-cancel').onclick = _close;
+
+  // Click outside modal box to cancel
+  overlay.addEventListener('click', e => { if (e.target === overlay) _close(); });
 }

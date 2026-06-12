@@ -137,54 +137,100 @@ function _colorRow(label, group, current, presets) {
 
 function _outfitSlotHTML(outfits, idx) {
   const o = outfits[idx] || {};
-  const img = o.imgData;
+  // Migrate legacy single imgData → images array
+  let images = o.images || [];
+  if (!images.length && o.imgData) images = [{ data: o.imgData, caption: '' }];
+
   return `
     <div class="profile-row"><label>Name</label><input type="text" id="oa-name" value="${esc(o.name||'')}" placeholder="Outfit name..."></div>
     <div style="margin:6px 0">
-      <label style="font-size:10px;color:var(--av-text-muted)">Image</label>
-      <div id="oa-img-wrap" style="
-        margin-top:4px;border:1px dashed var(--av-border);border-radius:var(--av-radius-md);
-        padding:8px;text-align:center;cursor:pointer;min-height:60px;
-        display:flex;align-items:center;justify-content:center;
-        transition:border-color .15s;position:relative;overflow:hidden">
-        ${img
-          ? `<img src="${img}" style="max-width:100%;max-height:120px;border-radius:4px;object-fit:cover">`
-          : `<span style="font-size:11px;color:var(--av-text-muted)">+ Add image</span>`}
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+        <label style="font-size:10px;color:var(--av-text-muted)">Images (${images.length})</label>
+        <button id="oa-img-add" style="font-size:10px;padding:1px 8px;border-radius:999px;background:var(--av-bg-surface);border:1px solid var(--av-border);cursor:pointer;color:var(--av-text-secondary)">＋ Add</button>
       </div>
-      ${img ? `<button id="oa-img-clear" style="margin-top:4px;font-size:10px;color:var(--av-danger,#e74c3c);background:none;border:none;cursor:pointer;padding:0">Remove image</button>` : ''}
+      <div id="oa-img-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px">
+        ${images.map((img, ii) => `
+          <div class="oa-img-item" data-ii="${ii}" style="position:relative;border-radius:var(--av-radius-md);overflow:hidden;border:1px solid var(--av-border);background:var(--av-bg-surface)">
+            <img src="${img.data}" style="width:100%;height:80px;object-fit:cover;display:block;cursor:pointer" class="oa-img-preview" data-ii="${ii}">
+            <button class="oa-img-del" data-ii="${ii}" style="
+              position:absolute;top:2px;right:2px;width:16px;height:16px;
+              background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;
+              cursor:pointer;font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center">×</button>
+            <input class="oa-img-caption" data-ii="${ii}" value="${esc(img.caption||'')}" placeholder="Caption..."
+              style="width:100%;font-size:9px;padding:2px 4px;border:none;border-top:1px solid var(--av-border);background:var(--av-bg-surface);color:var(--av-text-secondary);box-sizing:border-box">
+          </div>
+        `).join('')}
+        ${images.length === 0 ? `<div style="font-size:11px;color:var(--av-text-muted);font-style:italic;padding:4px 0;grid-column:1/-1">No images yet</div>` : ''}
+      </div>
     </div>
     <div class="profile-row"><label>Description</label><textarea id="oa-desc" style="flex:1;min-height:52px;padding:5px;font-size:12px" placeholder="Describe the outfit...">${esc(o.desc||'')}</textarea></div>
   `;
 }
 
 function _wireOutfit(nodeId, idx) {
-  document.getElementById('oa-name')?.addEventListener('input', e => _saveOutfitField(nodeId, idx, 'name', e.target.value));
-  document.getElementById('oa-desc')?.addEventListener('input', e => _saveOutfitField(nodeId, idx, 'desc', e.target.value));
+  const body = document.getElementById('outfit-slot-body');
+  if (!body) return;
 
-  const wrap = document.getElementById('oa-img-wrap');
-  if (wrap) {
-    wrap.addEventListener('mouseenter', () => wrap.style.borderColor = 'var(--av-accent)');
-    wrap.addEventListener('mouseleave', () => wrap.style.borderColor = '');
-    wrap.addEventListener('click', async () => {
-      const fp = await window.api?.openMedia?.();
-      if (!fp || !/\.(png|jpe?g|gif|webp|svg)$/i.test(fp)) return;
-      const b64 = await window.api?.fsReadBinary?.(fp);
-      if (!b64) return;
-      const ext = fp.split('.').pop().toLowerCase();
-      const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      _saveOutfitField(nodeId, idx, 'imgData', `data:${mime};base64,${b64}`);
-      // Re-render outfit slot
+  body.querySelector('#oa-name')?.addEventListener('input', e => _saveOutfitField(nodeId, idx, 'name', e.target.value));
+  body.querySelector('#oa-desc')?.addEventListener('input', e => _saveOutfitField(nodeId, idx, 'desc', e.target.value));
+
+  // Add image button
+  body.querySelector('#oa-img-add')?.addEventListener('click', async () => {
+    const fp = await window.api?.openMedia?.();
+    if (!fp || !/\.(png|jpe?g|gif|webp|svg)$/i.test(fp)) return;
+    const b64 = await window.api?.fsReadBinary?.(fp);
+    if (!b64) return;
+    const ext = fp.split('.').pop().toLowerCase();
+    const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    const ap = getOrCreateProfile(nodeId).appearance || {};
+    const outfits = ap.outfits || {};
+    const o = outfits[idx] || {};
+    let images = o.images || [];
+    if (!images.length && o.imgData) images = [{ data: o.imgData, caption: '' }];
+    images.push({ data: `data:${mime};base64,${b64}`, caption: '' });
+    _saveOutfitField(nodeId, idx, 'images', images);
+    _saveOutfitField(nodeId, idx, 'imgData', '');
+    body.innerHTML = _outfitSlotHTML(getOrCreateProfile(nodeId).appearance?.outfits || {}, idx);
+    _wireOutfit(nodeId, idx);
+  });
+
+  // Delete image
+  body.querySelectorAll('.oa-img-del').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const ii = parseInt(btn.dataset.ii);
       const ap = getOrCreateProfile(nodeId).appearance || {};
-      document.getElementById('outfit-slot-body').innerHTML = _outfitSlotHTML(ap.outfits || {}, idx);
+      const outfits = ap.outfits || {};
+      const o = outfits[idx] || {};
+      let images = o.images || [];
+      if (!images.length && o.imgData) images = [{ data: o.imgData, caption: '' }];
+      images.splice(ii, 1);
+      _saveOutfitField(nodeId, idx, 'images', images);
+      _saveOutfitField(nodeId, idx, 'imgData', '');
+      body.innerHTML = _outfitSlotHTML(getOrCreateProfile(nodeId).appearance?.outfits || {}, idx);
       _wireOutfit(nodeId, idx);
     });
-  }
+  });
 
-  document.getElementById('oa-img-clear')?.addEventListener('click', () => {
-    _saveOutfitField(nodeId, idx, 'imgData', '');
-    const ap = getOrCreateProfile(nodeId).appearance || {};
-    document.getElementById('outfit-slot-body').innerHTML = _outfitSlotHTML(ap.outfits || {}, idx);
-    _wireOutfit(nodeId, idx);
+  // Caption edit
+  body.querySelectorAll('.oa-img-caption').forEach(input => {
+    input.addEventListener('input', () => {
+      const ii = parseInt(input.dataset.ii);
+      const ap = getOrCreateProfile(nodeId).appearance || {};
+      const outfits = ap.outfits || {};
+      const o = outfits[idx] || {};
+      let images = o.images ? [...o.images] : (o.imgData ? [{ data: o.imgData, caption: '' }] : []);
+      if (images[ii]) { images[ii] = { ...images[ii], caption: input.value }; }
+      _saveOutfitField(nodeId, idx, 'images', images);
+    });
+  });
+
+  // Preview image on click (open full)
+  body.querySelectorAll('.oa-img-preview').forEach(img => {
+    img.addEventListener('click', () => {
+      const w = window.open('', '_blank', 'width=800,height=600');
+      if (w) { w.document.write(`<body style="margin:0;background:#000"><img src="${img.src}" style="max-width:100%;max-height:100vh;display:block;margin:auto"></body>`); }
+    });
   });
 }
 

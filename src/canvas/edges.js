@@ -24,29 +24,29 @@ let _connecting = null; // { fromId, tempLine }
 
 export function initEdges(svg) {
   _svg = svg;
-  // Fix: give SVG explicit large size so edges render even when canvas-inner has 0 computed size
-  if (_svg) {
-    _svg.style.width  = '10000px';
-    _svg.style.height = '10000px';
-  }
+  // CSS always beats SVG presentation attributes — set inline style directly
+  _svg.style.width  = '8000px';
+  _svg.style.height = '8000px';
   EventBus.on('nodes:updated',  renderEdges);
   EventBus.on('edges:updated',  renderEdges);
   EventBus.on('canvas:node-moved', renderEdges);
   EventBus.on('canvas:start-connect', (fromId) => startEdgeConnect(fromId));
-  EventBus.on('canvas:connect-drag-start', ({ fromId, clientX, clientY }) =>
-    startEdgeConnectDrag(fromId, clientX, clientY));
+  // Expose for connections.js "Add Connection" shortcut
+  window._edgesModule = { startEdgeConnect };
 }
 
 export function renderEdges() {
   if (!_svg) return;
-  _svg.innerHTML = _buildDefs();
 
+  // Build entire SVG content as one string — avoids repeated innerHTML parse/serialize cycles
+  let html = _buildDefs(state.edges);
   for (const e of state.edges) {
     const from = state.nodes.find(n => n.id === e.from);
     const to   = state.nodes.find(n => n.id === e.to);
     if (!from || !to) continue;
-    _svg.innerHTML += _buildEdge(e, from, to);
+    html += _buildEdge(e, from, to);
   }
+  _svg.innerHTML = html;
 
   // Bind click events on paths
   _svg.querySelectorAll('.edge-line').forEach(path => {
@@ -62,46 +62,74 @@ export function renderEdges() {
   });
 }
 
-function _buildDefs() {
-  return `<defs>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-      <path d="M0,0 L0,6 L8,3 z" fill="context-stroke"/>
+// Collect unique colors used by edges so we can emit per-color marker defs
+function _buildDefs(edges) {
+  const colors = [...new Set(edges.map(e => e.color || '#888888'))];
+  const markers = colors.map(c => {
+    const id = 'arr-' + c.replace('#', '');
+    const rid = 'arr-r-' + c.replace('#', '');
+    return `
+    <marker id="${id}" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,8 L9,4 z" fill="${c}"/>
     </marker>
-  </defs>`;
+    <marker id="${rid}" markerWidth="10" markerHeight="10" refX="1" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M9,0 L9,8 L0,4 z" fill="${c}"/>
+    </marker>`;
+  }).join('');
+  return `<defs>${markers}</defs>`;
 }
 
 function _buildEdge(e, from, to) {
   const style = EDGE_STYLES[e.style] || EDGE_STYLES.solid;
-  const color = e.color || '#888';
-  const mx1 = from.x + (from.size || 52) / 2;
-  const my1 = from.y + (from.size || 52) / 2;
-  const mx2 = to.x   + (to.size || 52) / 2;
-  const my2 = to.y   + (to.size || 52) / 2;
+  const color = e.color || '#888888';
+  const strokeWidth = e.thick || style.strokeWidth;
+  const dir = e.dir !== undefined ? e.dir : (e.arrow !== false ? 'forward' : 'none');
 
-  const cx = (mx1 + mx2) / 2;
-  const cy = (my1 + my2) / 2;
+  // Node centers
+  const cx1 = from.x + (from.size || 52) / 2;
+  const cy1 = from.y + (from.size || 52) / 2;
+  const cx2 = to.x   + (to.size   || 52) / 2;
+  const cy2 = to.y   + (to.size   || 52) / 2;
+
+  // Offset endpoints to sit at node edge (radius + small gap)
+  const r1 = (from.size || 52) / 2 + 4;
+  const r2 = (to.size   || 52) / 2 + 4;
+  const dist = Math.sqrt((cx2-cx1)**2 + (cy2-cy1)**2) || 1;
+  const ux = (cx2 - cx1) / dist, uy = (cy2 - cy1) / dist;
+
+  const mx1 = cx1 + ux * r1;
+  const my1 = cy1 + uy * r1;
+  const mx2 = cx2 - ux * r2;
+  const my2 = cy2 - uy * r2;
+
+  // Quadratic bezier control point (slight curve)
+  const mcx = (mx1 + mx2) / 2;
+  const mcy = (my1 + my2) / 2;
   const dx = mx2 - mx1, dy = my2 - my1;
-  const curve = Math.sqrt(dx*dx + dy*dy) * 0.18;
-  const cpx = cx - dy * 0.18, cpy = cy + dx * 0.18;
+  const cpx = mcx - dy * 0.18, cpy = mcy + dx * 0.18;
 
   const d = `M${mx1},${my1} Q${cpx},${cpy} ${mx2},${my2}`;
-  const selected = state.selectedNodes.size === 0 ? false : false; // edge selection logic TODO
+
+  const cid  = color.replace('#', '');
+  const mEnd   = (dir === 'forward' || dir === 'both') ? `url(#arr-${cid})`   : 'none';
+  const mStart = (dir === 'both')                      ? `url(#arr-r-${cid})` : 'none';
 
   let paths = `<path class="edge-line${style.animated ? ' edge-animated' : ''}" data-id="${e.id}"
-    d="${d}" stroke="${color}" stroke-width="${style.strokeWidth}"
-    stroke-dasharray="${style.dash}" fill="none" opacity="0.8"
-    marker-end="${e.arrow !== false ? 'url(#arrow)' : 'none'}"/>`;
+    d="${d}" stroke="${color}" stroke-width="${strokeWidth}"
+    stroke-dasharray="${style.dash}" fill="none" opacity="0.85"
+    marker-end="${mEnd}" marker-start="${mStart}"/>`;
 
   if (style.double) {
-    paths += `<path d="${d}" stroke="var(--av-bg-primary)" stroke-width="${style.strokeWidth - 2}" fill="none" opacity="0.9" pointer-events="none"/>`;
+    paths += `<path d="${d}" stroke="var(--av-bg-primary)" stroke-width="${Math.max(1, strokeWidth - 2)}" fill="none" opacity="0.9" pointer-events="none"/>`;
   }
 
-  // Label
+  // Label — positioned along the curve midpoint
   if (e.label) {
     const lx = (mx1 + cpx + mx2) / 3;
     const ly = (my1 + cpy + my2) / 3;
-    paths += `<rect x="${lx-22}" y="${ly-9}" width="44" height="14" class="edge-label-bg"/>
-      <text x="${lx}" y="${ly+2}" class="edge-label-text" text-anchor="middle">${e.label}</text>`;
+    const tw = Math.max(44, e.label.length * 7);
+    paths += `<rect x="${lx - tw/2}" y="${ly-9}" width="${tw}" height="16" rx="4" class="edge-label-bg"/>
+      <text x="${lx}" y="${ly+3}" class="edge-label-text" text-anchor="middle">${e.label}</text>`;
   }
 
   return paths;
@@ -112,10 +140,20 @@ function _buildEdge(e, from, to) {
 export function startEdgeConnect(fromId) {
   _connecting = { fromId };
   window._avConnecting = true;
-  window._avCanvasMode = 'select';
   document.body.style.cursor = 'crosshair';
 
-  EventBus.emit('status:message', 'Click a node to connect — Escape to cancel');
+  // Highlight the source node so user knows which node is "from"
+  document.querySelector(`.node[data-id="${fromId}"]`)?.classList.add('connecting-source');
+
+  // Show prominent instruction banner
+  const fromNode = state.nodes.find(n => n.id === fromId);
+  const banner = document.getElementById('connect-banner');
+  if (banner) {
+    document.getElementById('connect-banner-from').textContent = `From: ${fromNode?.name || 'Node'}`;
+    banner.style.display = 'flex';
+  }
+
+  EventBus.emit('status:message', 'Click a target node to connect — Escape to cancel');
 
   const onClick = (id) => {
     if (id !== _connecting?.fromId) {
@@ -123,7 +161,10 @@ export function startEdgeConnect(fromId) {
         (e.from === _connecting.fromId && e.to === id) ||
         (e.from === id && e.to === _connecting.fromId));
       if (!existing) {
-        stateAddEdge({ id: uid(), from: _connecting.fromId, to: id, label: '', style: 'solid', color: '#7c5cbf' });
+        const newEdge = { id: uid(), from: _connecting.fromId, to: id, label: '', style: 'animated', color: '#7c5cbf', dir: 'forward', thick: 2 };
+        stateAddEdge(newEdge);
+        // Immediately open the edge panel so the user can configure the new connection
+        setTimeout(() => EventBus.emit('edge:clicked', newEdge.id), 50);
       }
     }
     _stopConnect(onClick, onKey);
@@ -136,6 +177,9 @@ export function startEdgeConnect(fromId) {
 }
 
 function _stopConnect(onClick, onKey) {
+  document.querySelectorAll('.node.connecting-source').forEach(el => el.classList.remove('connecting-source'));
+  const banner = document.getElementById('connect-banner');
+  if (banner) banner.style.display = 'none';
   _connecting = null;
   window._avConnecting = false;
   document.body.style.cursor = '';
@@ -143,157 +187,4 @@ function _stopConnect(onClick, onKey) {
   document.removeEventListener('keydown', onKey);
   EventBus.emit('canvas:mode-reset');
   EventBus.emit('status:message', '');
-}
-
-// ── Connect drag (toolbar connect mode) ───────────────────────────────────────
-
-export function startEdgeConnectDrag(fromId, clientX, clientY) {
-  const fromNode = state.nodes.find(n => n.id === fromId);
-  if (!fromNode || !_svg) return;
-
-  const fromX = fromNode.x + (fromNode.size || 52) / 2;
-  const fromY = fromNode.y + (fromNode.size || 52) / 2;
-
-  // Rubber-band temp line
-  const tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  tempLine.setAttribute('x1', fromX);
-  tempLine.setAttribute('y1', fromY);
-  tempLine.setAttribute('x2', fromX);
-  tempLine.setAttribute('y2', fromY);
-  tempLine.setAttribute('stroke', '#7c5cbf');
-  tempLine.setAttribute('stroke-width', '2');
-  tempLine.setAttribute('stroke-dasharray', '7,3');
-  tempLine.style.opacity = '0.75';
-  tempLine.style.pointerEvents = 'none';
-  _svg.appendChild(tempLine);
-
-  const srcEl = document.querySelector(`.node[data-id="${fromId}"]`);
-  if (srcEl) srcEl.style.outline = '2px solid #7c5cbf';
-
-  let hoveredEl = null;
-
-  function toCanvas(cx, cy) {
-    const container = document.getElementById('view-canvas');
-    if (!container) return { x: cx, y: cy };
-    const r = container.getBoundingClientRect();
-    return {
-      x: (cx - r.left - state.view.x) / state.view.scale,
-      y: (cy - r.top  - state.view.y) / state.view.scale,
-    };
-  }
-
-  function onMove(e) {
-    const { x, y } = toCanvas(e.clientX, e.clientY);
-    tempLine.setAttribute('x2', x);
-    tempLine.setAttribute('y2', y);
-
-    if (hoveredEl) { hoveredEl.style.outline = ''; hoveredEl = null; }
-    const target = e.target.closest?.('.node');
-    if (target && target.dataset.id && target.dataset.id !== fromId) {
-      hoveredEl = target;
-      target.style.outline = '2px dashed #7c5cbf';
-    }
-  }
-
-  function onUp(e) {
-    cleanup();
-    const target = e.target.closest?.('.node');
-    if (target && target.dataset.id && target.dataset.id !== fromId) {
-      _promptEdgeLabel(fromId, target.dataset.id, e.clientX, e.clientY);
-    }
-  }
-
-  function cleanup() {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup',  onUp);
-    tempLine.remove();
-    if (srcEl) srcEl.style.outline = '';
-    if (hoveredEl) { hoveredEl.style.outline = ''; hoveredEl = null; }
-  }
-
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup',  onUp);
-}
-
-export function promptEdgeLabel(fromId, toId, clientX, clientY) {
-  _promptEdgeLabel(fromId, toId, clientX, clientY);
-}
-
-function _promptEdgeLabel(fromId, toId, clientX, clientY) {
-  const from = state.nodes.find(n => n.id === fromId);
-  const to   = state.nodes.find(n => n.id === toId);
-  if (!from || !to) return;
-
-  const existing = state.edges.find(e =>
-    (e.from === fromId && e.to === toId) ||
-    (e.from === toId   && e.to === fromId));
-  if (existing) return;
-
-  const px = Math.min(clientX + 10, window.innerWidth  - 270);
-  const py = Math.min(clientY + 10, window.innerHeight - 190);
-
-  const popup = document.createElement('div');
-  popup.style.cssText = `
-    position:fixed;left:${px}px;top:${py}px;z-index:10000;
-    background:var(--av-bg-elevated);border:1px solid var(--av-border-strong);
-    border-radius:var(--av-radius-lg);padding:14px;width:250px;
-    box-shadow:0 8px 32px rgba(0,0,0,0.5);
-  `;
-
-  const presets = ['Ally','Enemy','Mentor','Rival','Family','Friend'];
-  popup.innerHTML = `
-    <div style="font-size:12px;font-weight:600;color:var(--av-text-primary);margin-bottom:3px;">${from.name} → ${to.name}</div>
-    <div style="font-size:11px;color:var(--av-text-muted);margin-bottom:8px;">Relationship label (optional)</div>
-    <input id="_elInp" type="text" placeholder="e.g. Mentor, Ally, Enemy..."
-      style="width:100%;padding:6px 8px;border-radius:var(--av-radius-sm);font-size:12px;
-             border:1px solid var(--av-border);background:var(--av-bg-base);
-             color:var(--av-text-primary);outline:none;box-sizing:border-box;margin-bottom:8px;">
-    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">
-      ${presets.map(p =>
-        `<button class="_elChip" data-p="${p}"
-          style="padding:3px 8px;border-radius:10px;border:1px solid var(--av-border);
-                 background:var(--av-bg-base);color:var(--av-text-muted);
-                 cursor:pointer;font-size:11px;">${p}</button>`
-      ).join('')}
-    </div>
-    <div style="display:flex;gap:6px;">
-      <button id="_elSkip" style="flex:1;padding:6px;border-radius:var(--av-radius-sm);
-        border:1px solid var(--av-border);background:transparent;
-        color:var(--av-text-muted);cursor:pointer;font-size:11px;">Skip</button>
-      <button id="_elOk" style="flex:2;padding:6px;border-radius:var(--av-radius-sm);
-        border:none;background:var(--av-accent,#7c5cbf);color:#fff;
-        cursor:pointer;font-size:11px;font-weight:600;">Connect</button>
-    </div>
-  `;
-  document.body.appendChild(popup);
-
-  const inp = popup.querySelector('#_elInp');
-  setTimeout(() => inp?.focus(), 30);
-
-  popup.querySelectorAll('._elChip').forEach(btn => {
-    btn.addEventListener('click', () => { if (inp) inp.value = btn.dataset.p; });
-  });
-
-  function doConnect(label) {
-    import('../state.js').then(({ uid, addEdge }) => {
-      addEdge({ id: uid(), from: fromId, to: toId, label: label || '', style: 'solid', color: '#7c5cbf', arrow: true });
-    });
-    popup.remove();
-    if (onOut) document.removeEventListener('mousedown', onOut);
-  }
-
-  popup.querySelector('#_elOk').addEventListener('click', () => doConnect(inp?.value.trim() || ''));
-  popup.querySelector('#_elSkip').addEventListener('click', () => doConnect(''));
-  inp?.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  doConnect(inp.value.trim());
-    if (e.key === 'Escape') { popup.remove(); document.removeEventListener('mousedown', onOut); }
-  });
-
-  let onOut;
-  setTimeout(() => {
-    onOut = e => {
-      if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('mousedown', onOut); }
-    };
-    document.addEventListener('mousedown', onOut);
-  }, 150);
 }

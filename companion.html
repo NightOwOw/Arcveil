@@ -175,6 +175,94 @@
       pointer-events: none; white-space: nowrap; z-index: 50;
     }
 
+    /* ── Chat button & panel ────────────────────── */
+    #chat-btn {
+      position: absolute;
+      bottom: 42px; right: 8px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(124,92,191,0.82);
+      border: 1px solid rgba(196,155,255,0.4);
+      color: #fff; font-size: 14px; line-height: 1;
+      cursor: pointer; z-index: 40;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity 0.18s;
+      pointer-events: all;
+    }
+    body:hover #chat-btn { opacity: 1; }
+    #chat-btn.active { opacity: 1 !important; background: rgba(124,92,191,1); }
+
+    #chat-panel {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 0; overflow: hidden;
+      background: rgba(8,5,18,0.95);
+      border-top: 1px solid rgba(124,92,191,0.28);
+      border-radius: 12px 12px 0 0;
+      transition: height 0.22s cubic-bezier(0.4,0,0.2,1);
+      z-index: 35;
+      display: flex; flex-direction: column;
+      -webkit-user-select: text; user-select: text;
+      overflow-x: hidden;
+    }
+    #chat-panel.open { height: 190px; }
+
+    #chat-messages {
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      padding: 8px 7px 2px;
+      display: flex; flex-direction: column; gap: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(124,92,191,0.3) transparent;
+    }
+    .chat-msg {
+      font-size: 11px; line-height: 1.45;
+      padding: 5px 8px; border-radius: 10px;
+      max-width: 86%; word-break: break-word;
+    }
+    .chat-msg.user {
+      align-self: flex-end;
+      background: rgba(124,92,191,0.6); color: #e8e6f4;
+      border-radius: 10px 10px 2px 10px;
+    }
+    .chat-msg.assistant {
+      align-self: flex-start;
+      background: rgba(25,18,42,0.92); color: #d5d1e8;
+      border: 1px solid rgba(124,92,191,0.22);
+      border-radius: 10px 10px 10px 2px;
+    }
+    .chat-msg.error { align-self: center; color: #ff8080; font-size: 10px; background: none; }
+    .chat-msg.typing {
+      align-self: flex-start;
+      background: rgba(25,18,42,0.92); color: #9b7fd4; font-size: 12px;
+      border: 1px solid rgba(124,92,191,0.22); letter-spacing: 3px;
+      border-radius: 10px 10px 10px 2px;
+    }
+
+    #chat-noai {
+      font-size: 10px; color: #9b7fd4; text-align: center;
+      padding: 16px 10px 4px; opacity: 0.75; line-height: 1.55;
+    }
+    #chat-input-row {
+      display: flex; gap: 4px; padding: 4px 6px 7px;
+      border-top: 1px solid rgba(124,92,191,0.12);
+    }
+    #chat-input {
+      flex: 1; background: rgba(22,15,38,0.9);
+      border: 1px solid rgba(124,92,191,0.3);
+      border-radius: 8px; padding: 5px 8px;
+      color: #e8e6f4; font-size: 11px; outline: none;
+      -webkit-user-select: text; user-select: text;
+    }
+    #chat-input::placeholder { color: rgba(155,127,212,0.45); }
+    #chat-input:focus { border-color: rgba(124,92,191,0.7); }
+    #chat-send {
+      width: 26px; height: 26px; border-radius: 7px;
+      background: rgba(124,92,191,0.75); border: none;
+      color: #fff; font-size: 13px; cursor: pointer;
+      flex-shrink: 0; align-self: center;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #chat-send:hover { background: rgba(150,110,220,0.95); }
+
     /* ── Debug overlay (toggle with Alt+D) ─────── */
     #debug-overlay {
       display: none;
@@ -211,6 +299,16 @@
   <div id="loading-toast"></div>
   <div id="debug-overlay"></div>
 
+  <div id="chat-panel">
+    <div id="chat-messages"></div>
+    <div id="chat-noai">Enable AI in Settings → ARCtor to chat! 🐲</div>
+    <div id="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Say something...">
+      <button id="chat-send">↑</button>
+    </div>
+  </div>
+  <button id="chat-btn" title="Chat with companion">💬</button>
+
 <script>
 'use strict';
 
@@ -245,7 +343,9 @@ const COMPANION_DEFS = {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let _activeId  = 'ciona';
+let _activeId    = 'ciona';
+let _aiSettings  = null;
+let _chatHistory = [];
 let _vrm       = null;
 let _mixer     = null;
 let _camera    = null;
@@ -864,11 +964,114 @@ if (window.companionApi) {
 
   window.companionApi.onSettings(settings => {
     if (settings?.lighting) applyLighting(settings.lighting);
+    _aiSettings = settings;
   });
 }
 
 // Initial visuals before IPC fires
 setCompanionVisuals('ciona');
+
+// ── Chat UI ───────────────────────────────────────────────────────────────────
+
+const _chatPanel  = document.getElementById('chat-panel');
+const _chatMsgs   = document.getElementById('chat-messages');
+const _chatInput  = document.getElementById('chat-input');
+const _chatSend   = document.getElementById('chat-send');
+const _chatBtn    = document.getElementById('chat-btn');
+const _chatNoAI   = document.getElementById('chat-noai');
+const _chatInpRow = document.getElementById('chat-input-row');
+
+_chatBtn.addEventListener('click', e => { e.stopPropagation(); _toggleChat(); });
+
+// Stop mousedown from bubbling to document hold-to-drag handler (prevents accidental window drag)
+_chatPanel.addEventListener('mousedown', e => e.stopPropagation());
+// Stop wheel from bubbling to document zoom handler (prevents model zoom while scrolling chat)
+_chatMsgs.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
+
+function _toggleChat() {
+  const opening = !_chatPanel.classList.contains('open');
+  _chatPanel.classList.toggle('open', opening);
+  _chatBtn.classList.toggle('active', opening);
+  if (opening) {
+    // Show input immediately; _sendChat will check AI config at send time
+    _chatNoAI.style.display   = 'none';
+    _chatInpRow.style.display = '';
+    window.companionApi?.setFocusable?.(true);
+    setTimeout(() => _chatInput?.focus(), 60);
+    _scrollChat();
+  } else {
+    window.companionApi?.setFocusable?.(false);
+  }
+}
+
+_chatInput?.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _sendChat(); }
+  if (e.key === 'Escape') _toggleChat();
+});
+_chatSend?.addEventListener('click', _sendChat);
+
+async function _sendChat() {
+  const text = _chatInput?.value.trim();
+  if (!text) return;
+  _chatInput.value = '';
+
+  // _aiSettings is the freshest source — updated by onSettings whenever settings page pushes changes
+  if (!_aiSettings || !_aiSettings.aiMode || _aiSettings.aiMode === 'none') {
+    _appendMsg('error', 'AI not configured. Enable in Settings → ARCtor.');
+    return;
+  }
+
+  _appendMsg('user', text);
+  _chatHistory.push({ role: 'user', content: text });
+  const typing = _appendMsg('typing', '•••');
+
+  const _names   = { ciona: 'Ciona',          somvora: 'Somvora' };
+  const _species = { ciona: 'little dragon artist', somvora: 'dream-eater spirit' };
+  const _traits  = {
+    ciona:   'chaotic, dramatic, and darkly playful — a little dragon with theatrical flair who delights in dark story moments, makes ominous predictions, and is oddly caring underneath the chaos',
+    somvora: 'chaotic, dramatic, and darkly playful — a dream-eater who feeds on nightmares, suggests darker outcomes, narrates like a gothic novel, and is strangely caring beneath the drama',
+  };
+  const systemPrompt =
+    `You are ${_names[_activeId] || 'Ciona'}, a ${_species[_activeId] || 'companion'} writing assistant ` +
+    `in the ArcVeil story writing app. Personality: ${_traits[_activeId] || 'helpful'}. ` +
+    `Keep responses brief (1-3 sentences). Stay in character.`;
+
+  let result;
+  try {
+    result = await window.companionApi.aiChat({
+      messages: _chatHistory.slice(-12),
+      systemPrompt,
+      settings: _aiSettings,
+    });
+  } catch (err) {
+    result = { ok: false, error: String(err.message) };
+  }
+
+  typing.remove();
+
+  if (result?.ok && result.text) {
+    _chatHistory.push({ role: 'assistant', content: result.text });
+    _appendMsg('assistant', result.text);
+    showBubble(result.text);
+  } else {
+    _appendMsg('error', result?.error || 'No response');
+  }
+  _scrollChat();
+}
+
+function _appendMsg(type, text) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg ' + type;
+  el.textContent = text;
+  _chatMsgs.appendChild(el);
+  _scrollChat();
+  return el;
+}
+
+function _scrollChat() {
+  if (_chatMsgs) _chatMsgs.scrollTop = _chatMsgs.scrollHeight;
+}
 </script>
 </body>
 </html>

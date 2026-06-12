@@ -157,6 +157,7 @@ Khi companion window có `parent: mainWindow`:
 - [x] Fix edge arrows không hiển thị (SVG size 0 bug)
 - [x] Thêm label/description dialog cho cả hai flow connect
 - [x] Thêm connect-drag mode (kéo từ node này sang node kia trong chế độ Connect)
+- [x] Implement ARCtor AI pipeline (Local AI + Cloud AI + Chat UI trên companion)
 - [ ] Các tính năng khác chưa được kiểm tra/fix
 
 ---
@@ -180,6 +181,38 @@ _svg.style.height = '10000px';
 **Thay đổi**:
 - `_showConnectDialog` nay có 2 phase: (1) chọn target node, (2) nhập label + preset chips (Ally, Enemy, Mentor...)
 - `_promptEdgeLabel()` trong edges.js: popup nhỏ xuất hiện ngay tại vị trí chuột sau khi drag connect
+
+---
+
+### 9. ARCtor AI — Local AI + Cloud AI + Chat UI
+**Files**: `src/state.js`, `src/settings/settings-ui.js`, `main.js`, `companion-preload.js`, `companion.html`, `src/companion/companion.js`
+
+**Tính năng**:
+- **Local AI**: Ollama (localhost:11434) — cấu hình URL endpoint + tên model
+- **Cloud AI**: hỗ trợ 3 provider với API key riêng biệt:
+  - Anthropic → Claude Haiku (`claude-haiku-4-5-20251001`)
+  - OpenAI → GPT-4o mini (`gpt-4o-mini`)
+  - Google → Gemini Flash (`gemini-2.0-flash-lite`)
+- **Chat UI**: bảng chat slide-up từ dưới companion window
+  - Nút 💬 xuất hiện khi hover lên companion
+  - Khi mở: companion window trở nên focusable để gõ bàn phím
+  - `_aiSettings` được cập nhật qua IPC khi settings thay đổi
+  - History giới hạn 12 tin nhắn gần nhất
+
+**Luồng dữ liệu**:
+1. `settings-ui.js` → mutate `state.companion` → `EventBus.emit('companion:settings-changed')`
+2. `companion.js` → `window.api.companionSettingsUpdate()` → IPC → main.js
+3. `main.js` → `companionWindow.webContents.send('companion:settings', data)`
+4. `companion.html` → `onSettings(settings => { _aiSettings = settings; })`
+5. User chat → `window.companionApi.aiChat({ messages, systemPrompt, settings })`
+6. `companion-preload.js` → `ipcRenderer.invoke('companion:ai-chat', payload)`
+7. `main.js` handler → `fetch()` to Ollama/Anthropic/OpenAI/Gemini → return `{ ok, text }`
+
+**Settings push timing**:
+- `_pushAiSettings()` trong settings-ui.js được gọi mỗi khi AI settings thay đổi
+- `_pushAiSettingsToCompanion()` trong companion.js được gọi sau 3s khi app boot (để companion window kịp khởi động)
+
+**Lưu ý**: `fetch()` trong main.js là Node.js 22 native global fetch — không cần import.
 
 ---
 

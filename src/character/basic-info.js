@@ -5,6 +5,7 @@
 // ============================================
 
 import { state, esc, getOrCreateProfile, updateProfile, saveHistory, EventBus } from '../state.js';
+import { avatarHTML, wireAvatarUpload } from '../canvas/node-image.js';
 
 const MBTI_TYPES = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP'];
 
@@ -18,7 +19,7 @@ export function renderBasicTab(nodeId) {
   body.innerHTML = `
     <!-- Hero -->
     <div class="profile-hero">
-      <div class="profile-avatar" style="background:${node.color||'#7c5cbf'}">${esc(node.letter||'?')}</div>
+      ${avatarHTML(node)}
       <div>
         <div class="profile-name">${esc(node.name||'Unnamed')}</div>
         <div class="profile-subtitle">${esc(p.role||node.type||'Character')}</div>
@@ -136,6 +137,8 @@ export function renderBasicTab(nodeId) {
       document.getElementById('rp-tabs').innerHTML = '';
     }
   });
+
+  wireAvatarUpload(nodeId, () => import('./basic-info.js').then(m => m.renderBasicTab(nodeId)));
 }
 
 function _statRow(label, id, val) {

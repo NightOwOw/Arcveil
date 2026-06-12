@@ -4,6 +4,9 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Force all emoji to render as monochrome text glyphs — prevents color mismatch */
+* { font-variant-emoji: text; }
+
 :root {
   /* Backgrounds — deep dark editorial palette */
   --av-bg-primary:      #0a0a0f;
@@ -94,6 +97,12 @@ input, textarea, select {
 input:focus, textarea:focus, select:focus {
   border-color: var(--av-accent);
   box-shadow: 0 0 0 2px var(--av-accent-dim);
+}
+
+/* Native dropdown options always need dark text on light background */
+select option {
+  color: #1a1a1a;
+  background: #ffffff;
 }
 
 button {

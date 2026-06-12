@@ -43,11 +43,33 @@ contextBridge.exposeInMainWorld('api', {
   on:  (ch, fn) => ipcRenderer.on(ch, (_, ...a) => fn(...a)),
   off: (ch, fn) => ipcRenderer.removeListener(ch, fn),
 
+  // Projects folder
+  listDefaultProjects: () => ipcRenderer.invoke('project:list-defaults'),
+
   // Updates
   checkForUpdate: ()   => ipcRenderer.invoke('app:check-update'),
 
   // Quit
   quitConfirmed: ()    => ipcRenderer.send('app:quit-confirmed'),
+
+  // Writing Hub file-system API
+  fsAPI: {
+    openFolder:    ()          => ipcRenderer.invoke('fs:open-folder'),
+    readDir:       (p)         => ipcRenderer.invoke('fs:read-dir', p),
+    readDirChildren:(p)        => ipcRenderer.invoke('fs:read-dir-children', p),
+    readFile:      (p)         => ipcRenderer.invoke('fs:read-file', p),
+    writeFile:     (p,c,fmt)   => ipcRenderer.invoke('fs:write-file', p, c, fmt),
+    deleteFile:    (p)         => ipcRenderer.invoke('fs:delete-file', p),
+    renameFile:    (p,n)       => ipcRenderer.invoke('fs:rename-file', p, n),
+    createFile:    (dir,name)  => ipcRenderer.invoke('fs:create-file', dir, name),
+    createFolder:  (dir,name)  => ipcRenderer.invoke('fs:create-folder', dir, name),
+    openInSystem:  (p)         => ipcRenderer.invoke('fs:open-system', p),
+    showInFolder:  (p)         => ipcRenderer.invoke('fs:show-in-folder', p),
+    watch:         (p,id)      => ipcRenderer.invoke('fs:watch', p, id),
+    unwatch:       (id)        => ipcRenderer.invoke('fs:unwatch', id),
+    onWatchEvent:  (fn)        => ipcRenderer.on('fs:watch-event', (_, d) => fn(d)),
+    offWatchEvent: (fn)        => ipcRenderer.removeListener('fs:watch-event', fn),
+  },
 
   // Overlay windows
   overlayHudToggle:    ()    => ipcRenderer.invoke('overlay:hud-toggle'),
@@ -75,4 +97,5 @@ contextBridge.exposeInMainWorld('api', {
   companionSwitch:        (id)  => ipcRenderer.send('companion:switch', id),
   companionStateUpdate:   (d)   => ipcRenderer.send('companion:state-update', d),
   companionSettingsUpdate:(d)   => ipcRenderer.send('companion:settings-update', d),
+  ollamaListModels:       (url) => ipcRenderer.invoke('ollama:list-models', url),
 });

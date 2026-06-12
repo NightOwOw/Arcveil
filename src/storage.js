@@ -110,8 +110,11 @@ export async function loadLastFile() {
   const settings = await window.api.loadSettings();
   if (settings?.lastFile) {
     const exists = await window.api.fsExists(settings.lastFile);
-    if (exists) await openProject(settings.lastFile);
+    if (exists) { await openProject(settings.lastFile); return; }
   }
+  // Fall back: open first .arcveil found in the projects folder
+  const projectFiles = await window.api.listDefaultProjects?.();
+  if (projectFiles?.length) await openProject(projectFiles[0]);
 }
 
 EventBus.on('project:saved', async ({ filePath }) => {
@@ -133,8 +136,8 @@ function _demoNodes() {
 
 function _demoEdges() {
   return [
-    { id: 'de1', from: 'demo1', to: 'demo2', label: 'trained by', style: 'solid', color: '#7c5cbf' },
-    { id: 'de2', from: 'demo1', to: 'demo3', label: 'lives in',   style: 'dashed', color: '#2ecc71' },
-    { id: 'de3', from: 'demo2', to: 'demo4', label: 'leads',      style: 'solid',  color: '#3498db' },
+    { id: 'de1', from: 'demo1', to: 'demo2', label: 'trained by', style: 'animated', color: '#7c5cbf', dir: 'forward', thick: 2 },
+    { id: 'de2', from: 'demo1', to: 'demo3', label: 'lives in',   style: 'animated', color: '#2ecc71', dir: 'none',    thick: 2 },
+    { id: 'de3', from: 'demo2', to: 'demo4', label: 'leads',      style: 'animated', color: '#3498db', dir: 'forward', thick: 2 },
   ];
 }

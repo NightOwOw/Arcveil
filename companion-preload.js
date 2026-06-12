@@ -19,4 +19,9 @@ contextBridge.exposeInMainWorld('companionApi', {
   // Outbound — model
   getModelPath:   (id) => ipcRenderer.invoke('companion:get-model-path', id),
   openModelPicker: ()  => ipcRenderer.send('companion:open-model-picker'),
+
+  // Outbound — AI
+  aiChat:        (payload) => ipcRenderer.invoke('companion:ai-chat', payload),
+  setFocusable:  (bool)    => ipcRenderer.send('companion:set-focusable', bool),
+  getAiSettings: ()        => ipcRenderer.invoke('companion:get-ai-settings'),
 });

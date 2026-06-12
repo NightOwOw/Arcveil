@@ -3,6 +3,31 @@
 /* Context menu (built in JS but styled here for reference) */
 #ctx-menu { /* Styles are inline in contextmenu.js */ }
 
+/* Generic context menu box — used by editor.js template/export/doc menus */
+.ctx-menu {
+  background: var(--av-bg-elevated);
+  border: 1px solid var(--av-border-strong);
+  border-radius: var(--av-radius-md);
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  font-size: 12px;
+  outline: none;
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--av-radius-sm);
+  color: var(--av-text-primary);
+  cursor: pointer;
+  transition: background var(--av-anim-speed);
+  white-space: nowrap;
+  user-select: none;
+}
+.ctx-item:hover { background: var(--av-bg-hover); }
+.ctx-item.danger { color: var(--av-danger); }
+.ctx-sep { border-top: 1px solid var(--av-border); margin: 4px 0; }
+
 /* ── Notifications ───────────────────────────────────────────────────────── */
 #notification-container {
   position: fixed; bottom: 40px; right: 16px; z-index: 9500;

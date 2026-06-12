@@ -821,9 +821,56 @@
 .dash-doc-icon { font-size: 14px; flex-shrink: 0; }
 .dash-doc-title { font-size: 11.5px; font-weight: 600; color: var(--av-text-primary); }
 .dash-doc-wc { font-size: 9.5px; color: var(--av-text-muted); }
-.dash-todo-row { display: flex; align-items: flex-start; gap: 5px; padding: 4px 0; font-size: 11px; color: var(--av-text-secondary); }
-.dash-todo-icon { flex-shrink: 0; font-size: 11px; }
+/* Interactive todos */
+.dash-todo-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.dash-todo-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: var(--av-radius-sm); font-size: 11px; color: var(--av-text-secondary); transition: background var(--av-anim-speed); }
+.dash-todo-row:hover { background: var(--av-bg-hover); }
+.dash-todo-row.done .dash-todo-text { text-decoration: line-through; opacity: 0.45; }
+.dash-todo-check {
+  flex-shrink: 0; width: 16px; height: 16px; border-radius: 3px;
+  border: 1.5px solid var(--av-border-strong); background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--av-accent); transition: background var(--av-anim-speed), border-color var(--av-anim-speed);
+}
+.dash-todo-check svg { width: 10px; height: 10px; }
+.dash-todo-check.checked { background: var(--av-accent-soft); border-color: var(--av-accent); }
 .dash-todo-text { flex: 1; line-height: 1.4; }
+.dash-todo-del {
+  flex-shrink: 0; opacity: 0; font-size: 13px; line-height: 1;
+  color: var(--av-text-muted); background: none; border: none; cursor: pointer;
+  padding: 0 2px; transition: opacity var(--av-anim-speed), color var(--av-anim-speed);
+}
+.dash-todo-row:hover .dash-todo-del { opacity: 1; }
+.dash-todo-del:hover { color: var(--av-danger); }
+.dash-todo-form { display: flex; gap: 5px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--av-border); }
+.dash-todo-input {
+  flex: 1; background: var(--av-input-bg); border: 1px solid var(--av-border);
+  border-radius: var(--av-radius-sm); padding: 4px 8px; font-size: 11px;
+  color: var(--av-text-primary); outline: none;
+}
+.dash-todo-input:focus { border-color: var(--av-accent); }
+.dash-todo-add-btn {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: var(--av-radius-sm);
+  background: var(--av-accent-soft); border: 1px solid var(--av-accent);
+  color: var(--av-accent); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background var(--av-anim-speed);
+}
+.dash-todo-add-btn:hover { background: var(--av-accent); color: #fff; }
+.dash-todo-add-btn svg { width: 12px; height: 12px; }
+
+/* Character jump */
+.dash-char-jump {
+  flex-shrink: 0; opacity: 0; font-size: 14px; color: var(--av-accent);
+  transition: opacity var(--av-anim-speed); cursor: pointer; padding: 0 2px;
+}
+.dash-char-row:hover .dash-char-jump { opacity: 1; }
+
+/* Icon sizing */
+.av-icon { display: inline-flex; align-items: center; }
+.av-icon svg { width: 14px; height: 14px; vertical-align: middle; }
+.dash-stat-icon.av-icon svg { width: 24px; height: 24px; }
+.dash-doc-icon.av-icon svg { width: 14px; height: 14px; }
+
 .dash-empty { font-size: 11px; color: var(--av-text-muted); padding: 7px 0; }
 .dash-more { font-size: 9.5px; color: var(--av-text-muted); margin-top: 4px; }
 .dash-inline-btn { background: none; border: none; color: var(--av-accent-hover); cursor: pointer; font-size: 11px; text-decoration: underline; padding: 0; }
@@ -854,7 +901,39 @@
 .about-shortcut-group-head { font-size: 9.5px; font-weight: 700; color: var(--av-text-muted); text-transform: uppercase; margin-bottom: 5px; }
 .about-shortcut-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
 .about-key { background: var(--av-bg-surface); border: 1px solid var(--av-border); border-radius: 4px; padding: 2px 6px; font-size: 9.5px; font-family: monospace; color: var(--av-text-primary); flex-shrink: 0; min-width: 56px; text-align: center; }
+.about-key.customizable { cursor: pointer; transition: border-color .15s, background .15s; }
+.about-key.customizable:hover { border-color: var(--av-accent); background: var(--av-accent-soft); color: var(--av-accent); }
+.about-key.customizable:hover::after { content: ' ✎'; font-size: 8px; opacity: 0.7; }
 .about-shortcut-label { font-size: 10.5px; color: var(--av-text-secondary); }
+
+/* ── Shortcut recording modal ────────────────────────────────────────────── */
+#sc-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.sc-modal {
+  background: var(--av-bg-elevated); border: 1px solid var(--av-border-strong);
+  border-radius: var(--av-radius-xl); padding: 22px 26px; min-width: 280px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6); text-align: center;
+}
+.sc-modal-title { font-size: 11px; font-weight: 700; color: var(--av-text-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.sc-modal-label { font-size: 15px; font-weight: 700; color: var(--av-text-primary); margin-bottom: 14px; }
+.sc-modal-hint { font-size: 11px; color: var(--av-text-muted); margin-bottom: 10px; }
+.sc-modal-preview {
+  background: var(--av-bg-surface); border: 2px solid var(--av-accent);
+  border-radius: var(--av-radius-md); padding: 10px 16px;
+  font-family: monospace; font-size: 15px; font-weight: 700;
+  color: var(--av-accent); margin-bottom: 16px; min-height: 38px;
+  display: flex; align-items: center; justify-content: center;
+}
+.sc-modal-conflict {
+  font-size: 10.5px; color: var(--av-warning, #f39c12); margin: -8px 0 10px;
+  padding: 5px 9px; background: rgba(243,156,18,0.08); border-radius: 5px;
+  border: 1px solid rgba(243,156,18,0.25); line-height: 1.4; display: none;
+}
+.sc-modal-btns { display: flex; gap: 7px; justify-content: center; }
+.sc-modal-btns .btn-sm { font-size: 11px; padding: 5px 12px; }
 .about-phases { display: flex; flex-direction: column; gap: 3px; }
 .about-phase { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 4px 7px; border-radius: var(--av-radius-md); color: var(--av-text-secondary); }
 .about-phase.done { color: var(--av-text-primary); }

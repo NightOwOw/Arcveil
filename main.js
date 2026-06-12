@@ -7,6 +7,12 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs   = require('fs');
+const chokidar = require('chokidar');
+let mammoth = null; try { mammoth = require('mammoth'); } catch {}
+let docxLib = null; try { docxLib = require('docx'); } catch {}
+
+// Active folder watchers: Map<watchId, chokidar.FSWatcher>
+const _watchers = new Map();
 
 const hotkeys         = require('./src/overlay/hotkeys.js');
 const trayManager     = require('./src/overlay/tray.js');
@@ -14,7 +20,11 @@ const clipboardBridge = require('./src/overlay/clipboard-bridge.js');
 const windowContext   = require('./src/overlay/window-context.js');
 const { initUpdater, checkForUpdates } = require('./src/updater.js');
 
-const APP_ICON = path.join(__dirname, 'assets/icons/app_logomark.ico');
+const APP_ICON    = path.join(__dirname, 'assets/icons/app_logo.png');
+const PROJECTS_DIR = path.join(__dirname, 'projects');
+
+// Ensure projects folder exists at startup
+try { fs.mkdirSync(PROJECTS_DIR, { recursive: true }); } catch {}
 
 let mainWindow     = null;
 let splashWindow   = null;
@@ -24,7 +34,15 @@ let edgePanelWindow = null;
 let summonWindow   = null;
 
 // Cached project state snapshot for overlay data pushes
-let _overlayState = {};
+let _overlayState    = {};
+let _cachedAiSettings = {};
+
+// Load persisted AI settings from disk so model choice survives restarts
+const _aiSettingsPath = path.join(app.getPath('userData'), 'ai-settings.json');
+try {
+  const saved = JSON.parse(fs.readFileSync(_aiSettingsPath, 'utf8'));
+  if (saved && typeof saved === 'object') _cachedAiSettings = saved;
+} catch { /* file doesn't exist yet — use defaults */ }
 
 function _buildOverlayState() { return _overlayState; }
 
@@ -166,6 +184,10 @@ function createCompanionWindow() {
     companionWindow.show();
     console.log('[companion] Window shown');
     companionWindow.webContents.send('companion:ready', { companionId: 'ciona' });
+    // Push latest AI settings so companion chat works immediately
+    if (Object.keys(_cachedAiSettings).length > 0) {
+      setTimeout(() => companionWindow?.webContents.send('companion:settings', _cachedAiSettings), 500);
+    }
   });
 
   companionWindow.on('closed', () => {
@@ -274,7 +296,120 @@ ipcMain.on('companion:state-update', (_, data) => {
 });
 
 ipcMain.on('companion:settings-update', (_, data) => {
+  if (data?.aiMode !== undefined) {
+    _cachedAiSettings = data;
+    console.log('[settings-update] cached ollamaModel:', data.ollamaModel, '| aiMode:', data.aiMode);
+    // Persist so model choice survives app restarts
+    try { fs.writeFileSync(_aiSettingsPath, JSON.stringify(data)); } catch { /* ignore */ }
+  }
   companionWindow?.webContents.send('companion:settings', data);
+});
+
+// ── AI Chat ───────────────────────────────────────────────────────────────────
+
+ipcMain.handle('companion:ai-chat', async (_, { messages, systemPrompt, settings }) => {
+  // Merge: cached provides defaults, companion's live settings override (companion has freshest values via onSettings)
+  const s = { ..._cachedAiSettings, ...(settings || {}) };
+  console.log('[ai-chat] ollamaModel:', s.ollamaModel, '| from companion:', settings?.ollamaModel, '| cached:', _cachedAiSettings.ollamaModel);
+  const { aiMode, aiProvider, ollamaUrl, ollamaModel } = s;
+  const anthropicKey = (s.anthropicKey || '').trim();
+  const openaiKey    = (s.openaiKey    || '').trim();
+  const geminiKey    = (s.geminiKey    || '').trim();
+  try {
+    if (aiMode === 'local') {
+      const url = (ollamaUrl || 'http://localhost:11434') + '/api/chat';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model:   ollamaModel || 'llama3',
+          messages: systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages,
+          stream:  false,
+        }),
+      });
+      if (!res.ok) throw new Error(`Ollama HTTP ${res.status} [model: ${ollamaModel || 'llama3'}]`);
+      const data = await res.json();
+      return { ok: true, text: data.message?.content || '' };
+
+    } else if (aiMode === 'cloud') {
+      if ((aiProvider || 'anthropic') === 'anthropic') {
+        if (!anthropicKey) throw new Error('Anthropic API key not configured');
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 512,
+            system: systemPrompt || '',
+            messages,
+          }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${res.status}`); }
+        const data = await res.json();
+        return { ok: true, text: data.content?.[0]?.text || '' };
+
+      } else if (aiProvider === 'openai') {
+        if (!openaiKey) throw new Error('OpenAI API key not configured');
+        const msgs = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages;
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+          body: JSON.stringify({ model: 'gpt-4o-mini', messages: msgs, max_tokens: 512 }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${res.status}`); }
+        const data = await res.json();
+        return { ok: true, text: data.choices?.[0]?.message?.content || '' };
+
+      } else if (aiProvider === 'gemini') {
+        if (!geminiKey) throw new Error('Google API key not configured');
+        const contents = messages.map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+        const finalContents = systemPrompt
+          ? [{ role: 'user', parts: [{ text: systemPrompt }] }, { role: 'model', parts: [{ text: 'Understood!' }] }, ...contents]
+          : contents;
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: finalContents,
+              generationConfig: { maxOutputTokens: 512 },
+            }),
+          }
+        );
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${res.status}`); }
+        const data = await res.json();
+        return { ok: true, text: data.candidates?.[0]?.content?.parts?.[0]?.text || '' };
+      }
+    }
+    return { ok: false, error: 'No AI provider configured' };
+  } catch (err) {
+    const detail = err.cause?.message || err.cause?.code || '';
+    return { ok: false, error: detail ? `${err.message} (${detail})` : err.message };
+  }
+});
+
+ipcMain.handle('companion:get-ai-settings', () => _cachedAiSettings);
+
+ipcMain.handle('ollama:list-models', async (_, url) => {
+  try {
+    const res = await fetch(`${url || 'http://localhost:11434'}/api/tags`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.models || []).map(m => m.name);
+  } catch { return []; }
+});
+
+ipcMain.on('companion:set-focusable', (e, bool) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) win.setFocusable(!!bool);
 });
 
 // ── HUD window ────────────────────────────────────────────────────────────────
@@ -466,6 +601,7 @@ ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false);
 
 ipcMain.handle('dialog:open', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
+    defaultPath: PROJECTS_DIR,
     filters: [{ name: 'ArcVeil Project', extensions: ['arcveil'] }],
     properties: ['openFile'],
   });
@@ -474,10 +610,19 @@ ipcMain.handle('dialog:open', async () => {
 
 ipcMain.handle('dialog:save', async (_, defaultName) => {
   const result = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: defaultName || 'My Project.arcveil',
+    defaultPath: path.join(PROJECTS_DIR, defaultName || 'My Project.arcveil'),
     filters: [{ name: 'ArcVeil Project', extensions: ['arcveil'] }],
   });
   return result.canceled ? null : result.filePath;
+});
+
+ipcMain.handle('project:list-defaults', () => {
+  try {
+    return fs.readdirSync(PROJECTS_DIR)
+      .filter(f => f.endsWith('.arcveil'))
+      .sort()
+      .map(f => path.join(PROJECTS_DIR, f));
+  } catch { return []; }
 });
 
 ipcMain.handle('dialog:open-media', async () => {
@@ -556,6 +701,121 @@ ipcMain.handle('app:version',       () => app.getVersion());
 ipcMain.handle('app:platform',      () => process.platform);
 ipcMain.handle('app:user-data',     () => app.getPath('userData'));
 ipcMain.handle('app:check-update',  () => checkForUpdates());
+
+// ── Writing Hub: Folder & File FS ─────────────────────────────────────────────
+
+ipcMain.handle('fs:open-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Open Folder',
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+function _buildTree(dirPath, depth) {
+  if (depth > 6) return [];
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    return entries
+      .filter(e => !e.name.startsWith('.'))
+      .sort((a, b) => {
+        if (a.isDirectory() && !b.isDirectory()) return -1;
+        if (!a.isDirectory() && b.isDirectory()) return 1;
+        return a.name.localeCompare(b.name);
+      })
+      .map(e => ({
+        name: e.name,
+        path: path.join(dirPath, e.name),
+        type: e.isDirectory() ? 'folder' : 'file',
+        ext: e.isDirectory() ? '' : path.extname(e.name).toLowerCase(),
+        children: e.isDirectory() ? null : undefined,
+      }));
+  } catch { return []; }
+}
+
+ipcMain.handle('fs:read-dir',          async (_, dirPath) => _buildTree(dirPath, 0));
+ipcMain.handle('fs:read-dir-children', async (_, dirPath) => _buildTree(dirPath, 0));
+
+ipcMain.handle('fs:read-file', async (_, filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  try {
+    if (ext === '.docx' && mammoth) {
+      const result = await mammoth.convertToHtml({ path: filePath });
+      return { type: 'html', content: result.value };
+    }
+    const content = fs.readFileSync(filePath, 'utf8');
+    return { type: ext === '.md' ? 'md' : 'text', content };
+  } catch (e) { return { type: 'error', content: e.message }; }
+});
+
+ipcMain.handle('fs:write-file', async (_, filePath, content, format) => {
+  try {
+    const ext = format || path.extname(filePath).toLowerCase();
+    if ((ext === '.docx' || ext === 'docx') && docxLib) {
+      const { Document, Paragraph, TextRun, Packer } = docxLib;
+      const lines = content
+        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<\/h[1-6]>/gi, '\n')
+        .replace(/<[^>]+>/g, '').split('\n').map(l => l.trim()).filter(l => l);
+      const doc = new Document({ sections: [{ children: lines.map(l => new Paragraph({ children: [new TextRun(l)] })) }] });
+      const buf = await Packer.toBuffer(doc);
+      fs.writeFileSync(filePath, buf);
+      return true;
+    }
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf8');
+    return true;
+  } catch { return false; }
+});
+
+ipcMain.handle('fs:delete-file', async (_, filePath) => {
+  try { await shell.trashItem(filePath); return true; }
+  catch { try { fs.rmSync(filePath, { recursive: true }); return true; } catch { return false; } }
+});
+
+ipcMain.handle('fs:rename-file', async (_, oldPath, newName) => {
+  try {
+    const newPath = path.join(path.dirname(oldPath), newName);
+    fs.renameSync(oldPath, newPath);
+    return newPath;
+  } catch { return null; }
+});
+
+ipcMain.handle('fs:create-file', async (_, dirPath, name) => {
+  try {
+    const filePath = path.join(dirPath, name);
+    fs.mkdirSync(dirPath, { recursive: true });
+    fs.writeFileSync(filePath, '', 'utf8');
+    return filePath;
+  } catch { return null; }
+});
+
+ipcMain.handle('fs:create-folder', async (_, dirPath, name) => {
+  try {
+    const folderPath = path.join(dirPath, name);
+    fs.mkdirSync(folderPath, { recursive: true });
+    return folderPath;
+  } catch { return null; }
+});
+
+ipcMain.handle('fs:open-system',   async (_, p) => shell.openPath(p));
+ipcMain.handle('fs:show-in-folder', async (_, p) => shell.showItemInFolder(p));
+
+ipcMain.handle('fs:watch', async (_, folderPath, watchId) => {
+  if (_watchers.has(watchId)) { _watchers.get(watchId).close(); _watchers.delete(watchId); }
+  try {
+    const watcher = chokidar.watch(folderPath, { ignoreInitial: true, depth: 5, ignored: /(^|[\/\\])\./ });
+    watcher.on('all', (event, filePath) => {
+      mainWindow?.webContents.send('fs:watch-event', { watchId, event, path: filePath });
+    });
+    _watchers.set(watchId, watcher);
+    return true;
+  } catch { return false; }
+});
+
+ipcMain.handle('fs:unwatch', async (_, watchId) => {
+  if (_watchers.has(watchId)) { _watchers.get(watchId).close(); _watchers.delete(watchId); }
+  return true;
+});
 
 // ── Close flow ────────────────────────────────────────────────────────────────
 

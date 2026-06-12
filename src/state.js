@@ -52,19 +52,29 @@ export const state = {
   },
 
   story: {
-    timeline:  [],
-    scenes:    [],
-    arcs:      [],
-    branches:  [],
-    promises:  [],
-    beats:     {},  // { arcId: { framework, mappings } }
+    timeline:     [],
+    chapters:     [],
+    scenes:       [],
+    arcs:         [],
+    subplots:     [],
+    branches:     [],
+    promises:     [],
+    beats:        {},
+    beatTemplate: 'snyder',
+    theme:        { statement: '', question: '', motifs: [] },
+    conflict:     { central: '', internal: '', external: '', stakes: '', clock: '' },
   },
 
   writing: {
-    documents:     [],
-    activeDocId:   null,
-    searchHistory: [],
+    documents:      [],
+    activeDocId:    null,
+    searchHistory:  [],
+    openFolderPath: null,
+    openFilePaths:  [],
   },
+
+  aus:         [],
+  activeAuId:  null,
 
   view:          { x: 0, y: 0, scale: 1 },
   activeView:    'dashboard',
@@ -92,6 +102,12 @@ export const state = {
     size:             180,
     notifyFrequency:  'normal',
     aiMode:           'none',
+    ollamaUrl:        'http://localhost:11434',
+    ollamaModel:      'llama3',
+    aiProvider:       'anthropic',
+    anthropicKey:     '',
+    openaiKey:        '',
+    geminiKey:        '',
     voiceEnabled:     false,
     voiceEngine:      'system',
     sessions:         [],
@@ -212,16 +228,18 @@ function _deserialise(snap) {
 
 export function getExportData() {
   return {
-    version: '1.0.0',
-    project: state.project,
-    nodes:   state.nodes,
-    edges:   state.edges,
-    profiles: state.profiles,
-    world:   state.world,
-    story:   state.story,
-    writing: state.writing,
-    settings: state.settings,
+    version:   '1.0.0',
+    project:   state.project,
+    nodes:     state.nodes,
+    edges:     state.edges,
+    profiles:  state.profiles,
+    world:     state.world,
+    story:     state.story,
+    writing:   state.writing,
+    settings:  state.settings,
     companion: state.companion,
+    aus:       state.aus,
+    activeAuId: state.activeAuId,
   };
 }
 
@@ -234,8 +252,10 @@ export function loadProject(data) {
   if (data.world)    Object.assign(state.world, data.world);
   if (data.story)    Object.assign(state.story, data.story);
   if (data.writing)  Object.assign(state.writing, data.writing);
-  if (data.settings) Object.assign(state.settings, data.settings);
+  if (data.settings)  Object.assign(state.settings, data.settings);
   if (data.companion) Object.assign(state.companion, data.companion);
+  if (data.aus)       state.aus = data.aus;
+  if (data.activeAuId !== undefined) state.activeAuId = data.activeAuId;
   state.selectedNodes = new Set();
   state.history = [_serialise()];
   state.historyIndex = 0;

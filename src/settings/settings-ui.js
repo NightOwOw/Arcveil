@@ -363,6 +363,21 @@ function _toHex(color) {
 
 // ── Assistant ─────────────────────────────────────────────────────────────────
 
+function _pushAiSettings() {
+  const c = state.companion || {};
+  // Read from DOM elements first — they reflect what the user actually sees/typed
+  const aiModeEl = document.querySelector('[name="ai-mode"]:checked');
+  EventBus.emit('companion:settings-changed', {
+    aiMode:       aiModeEl?.value                                          || c.aiMode       || 'none',
+    aiProvider:   document.getElementById('ai-provider')?.value           || c.aiProvider   || 'anthropic',
+    anthropicKey: document.getElementById('anthropic-key')?.value         || c.anthropicKey || '',
+    openaiKey:    document.getElementById('openai-key')?.value            || c.openaiKey    || '',
+    geminiKey:    document.getElementById('gemini-key')?.value            || c.geminiKey    || '',
+    ollamaUrl:    document.getElementById('ollama-url')?.value            || c.ollamaUrl    || 'http://localhost:11434',
+    ollamaModel:  document.getElementById('ollama-model')?.value          || c.ollamaModel  || 'llama3',
+  });
+}
+
 function _renderAssistant(el) {
   const c = state.companion || {};
   el.innerHTML = `
@@ -427,20 +442,30 @@ function _renderAssistant(el) {
           <div id="local-ai-config" style="${c.aiMode==='local'?'':'display:none'};padding:8px 12px;background:var(--av-bg-elevated);border-radius:var(--av-radius-md);font-size:12px">
             <div style="margin-bottom:6px;color:var(--av-text-secondary)">Ollama endpoint:</div>
             <input type="text" id="ollama-url" value="${esc(c.ollamaUrl||'http://localhost:11434')}" style="width:100%;margin-bottom:6px">
-            <div style="margin-bottom:6px;color:var(--av-text-secondary)">Model:</div>
-            <input type="text" id="ollama-model" value="${esc(c.ollamaModel||'llama3')}" style="width:100%">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+              <span style="color:var(--av-text-secondary)">Model:</span>
+              <button id="ollama-detect-btn" style="font-size:10px;padding:2px 7px;border-radius:4px;border:1px solid var(--av-border);background:var(--av-bg-base);color:var(--av-text-muted);cursor:pointer">↻ Detect</button>
+              <span id="ollama-detect-status" style="font-size:10px;color:var(--av-text-muted)"></span>
+            </div>
+            <select id="ollama-model-select" style="width:100%;margin-bottom:4px;display:none"></select>
+            <input type="text" id="ollama-model" value="${esc(c.ollamaModel||'')}" placeholder="e.g. llama3.2:3b" style="width:100%">
           </div>
           <label class="settings-radio-row">
-            <input type="radio" name="ai-mode" value="cloud" ${c.aiMode==='cloud'?'checked':''}> <strong>Cloud AI</strong> — OpenAI or Anthropic API
+            <input type="radio" name="ai-mode" value="cloud" ${c.aiMode==='cloud'?'checked':''}> <strong>Cloud AI</strong> — Claude, GPT, or Gemini
           </label>
           <div id="cloud-ai-config" style="${c.aiMode==='cloud'?'':'display:none'};padding:8px 12px;background:var(--av-bg-elevated);border-radius:var(--av-radius-md);font-size:12px">
-            <div style="margin-bottom:6px;color:var(--av-text-secondary)">Provider:</div>
-            <select id="ai-provider" style="width:100%;margin-bottom:6px">
-              <option value="openai" ${c.aiProvider==='openai'?'selected':''}>OpenAI (GPT-4)</option>
-              <option value="anthropic" ${c.aiProvider==='anthropic'?'selected':''}>Anthropic (Claude)</option>
+            <div style="margin-bottom:6px;color:var(--av-text-secondary)">Active provider:</div>
+            <select id="ai-provider" style="width:100%;margin-bottom:10px">
+              <option value="anthropic" ${(c.aiProvider||'anthropic')==='anthropic'?'selected':''}>Anthropic (Claude Haiku)</option>
+              <option value="openai"    ${c.aiProvider==='openai'   ?'selected':''}>OpenAI (GPT-4o mini)</option>
+              <option value="gemini"    ${c.aiProvider==='gemini'   ?'selected':''}>Google (Gemini 1.5 Flash)</option>
             </select>
-            <div style="margin-bottom:6px;color:var(--av-text-secondary)">API Key (stored locally):</div>
-            <input type="password" id="ai-api-key" value="${esc(c.aiApiKey||'')}" placeholder="sk-..." style="width:100%">
+            <div style="margin-bottom:4px;color:var(--av-text-secondary)">Anthropic API key:</div>
+            <input type="password" id="anthropic-key" value="${esc(c.anthropicKey||'')}" placeholder="sk-ant-..." style="width:100%;margin-bottom:8px">
+            <div style="margin-bottom:4px;color:var(--av-text-secondary)">OpenAI API key:</div>
+            <input type="password" id="openai-key" value="${esc(c.openaiKey||'')}" placeholder="sk-..." style="width:100%;margin-bottom:8px">
+            <div style="margin-bottom:4px;color:var(--av-text-secondary)">Google API key:</div>
+            <input type="password" id="gemini-key" value="${esc(c.geminiKey||'')}" placeholder="AIza..." style="width:100%">
           </div>
         </div>
       </div>
@@ -512,12 +537,56 @@ function _renderAssistant(el) {
       state.companion.aiMode = e.target.value;
       document.getElementById('local-ai-config').style.display  = e.target.value === 'local'  ? '' : 'none';
       document.getElementById('cloud-ai-config').style.display  = e.target.value === 'cloud'  ? '' : 'none';
+      _pushAiSettings();
+      if (e.target.value === 'local') setTimeout(_detectOllamaModels, 100);
     });
   });
-  document.getElementById('ollama-url')?.addEventListener('input', e => { state.companion.ollamaUrl = e.target.value; });
-  document.getElementById('ollama-model')?.addEventListener('input', e => { state.companion.ollamaModel = e.target.value; });
-  document.getElementById('ai-provider')?.addEventListener('change', e => { state.companion.aiProvider = e.target.value; });
-  document.getElementById('ai-api-key')?.addEventListener('input', e => { state.companion.aiApiKey = e.target.value; });
+  document.getElementById('ollama-url')?.addEventListener('input', e => { state.companion.ollamaUrl = e.target.value; _pushAiSettings(); });
+  document.getElementById('ollama-model')?.addEventListener('input', e => { state.companion.ollamaModel = e.target.value; _pushAiSettings(); });
+
+  async function _detectOllamaModels() {
+    const statusEl = document.getElementById('ollama-detect-status');
+    const selectEl = document.getElementById('ollama-model-select');
+    const inputEl  = document.getElementById('ollama-model');
+    if (!statusEl || !selectEl || !inputEl) return;
+    statusEl.textContent = 'detecting...';
+    const url = document.getElementById('ollama-url')?.value || 'http://localhost:11434';
+    const models = await window.api?.ollamaListModels?.(url) || [];
+    if (models.length === 0) {
+      statusEl.textContent = 'Ollama not running or no models found';
+      return;
+    }
+    statusEl.textContent = '';
+    selectEl.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+    selectEl.style.display = '';
+    // Auto-select: prefer currently saved model, else first model
+    const saved = state.companion.ollamaModel;
+    selectEl.value = models.includes(saved) ? saved : models[0];
+    // Sync input + state
+    inputEl.value = selectEl.value;
+    state.companion.ollamaModel = selectEl.value;
+    _pushAiSettings();
+    selectEl.onchange = () => {
+      inputEl.value = selectEl.value;
+      state.companion.ollamaModel = selectEl.value;
+      _pushAiSettings();
+    };
+  }
+
+  document.getElementById('ollama-detect-btn')?.addEventListener('click', _detectOllamaModels);
+
+  document.getElementById('ai-provider')?.addEventListener('change', e => { state.companion.aiProvider = e.target.value; _pushAiSettings(); });
+  document.getElementById('anthropic-key')?.addEventListener('input', e => { state.companion.anthropicKey = e.target.value; _pushAiSettings(); });
+  document.getElementById('openai-key')?.addEventListener('input', e => { state.companion.openaiKey = e.target.value; _pushAiSettings(); });
+  document.getElementById('gemini-key')?.addEventListener('input', e => { state.companion.geminiKey = e.target.value; _pushAiSettings(); });
+
+  if (c.aiMode === 'local') {
+    // Let detect set the correct model first, then it calls _pushAiSettings internally
+    _detectOllamaModels();
+  } else {
+    // No detect needed — push current state immediately
+    _pushAiSettings();
+  }
 
   // Voice
   document.getElementById('voice-enabled')?.addEventListener('change', e => { state.companion.voiceEnabled = e.target.checked; });

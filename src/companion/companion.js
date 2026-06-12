@@ -45,9 +45,24 @@ export async function initCompanion() {
   // Forward settings changes to the companion window renderer
   EventBus.on('companion:settings-changed', (settings) => {
     if (window.api?.companionSettingsUpdate) window.api.companionSettingsUpdate(settings);
+    // Also update cached AI state for immediate use
+    if (settings?.aiMode !== undefined) {
+      state.companion.aiMode       = settings.aiMode;
+      state.companion.aiProvider   = settings.aiProvider   || state.companion.aiProvider;
+      state.companion.anthropicKey = settings.anthropicKey || state.companion.anthropicKey;
+      state.companion.openaiKey    = settings.openaiKey    || state.companion.openaiKey;
+      state.companion.geminiKey    = settings.geminiKey    || state.companion.geminiKey;
+      state.companion.ollamaUrl    = settings.ollamaUrl    || state.companion.ollamaUrl;
+      state.companion.ollamaModel  = settings.ollamaModel  || state.companion.ollamaModel;
+    }
   });
 
-  // Notify companion window of project state every 60s
+  // Notify companion window of project state every 60s.
+  // Only push AI settings at boot if they're already configured in state (e.g. from project file).
+  // Otherwise main.js pushes from its persisted ai-settings.json via the companion ready-to-show handler.
+  if (state.companion.aiMode && state.companion.aiMode !== 'none') {
+    setTimeout(_pushAiSettingsToCompanion, 3000);
+  }
   setInterval(_pushStateToCompanion, 60_000);
 }
 
@@ -120,6 +135,20 @@ function _pushStateToCompanion() {
     todayWords:   state.companion?.todayWords || 0,
     dailyGoal:    state.companion?.dailyGoal  || 1000,
     projectName:  state.project?.name || '',
+  });
+}
+
+function _pushAiSettingsToCompanion() {
+  if (!window.api?.companionSettingsUpdate) return;
+  const c = state.companion || {};
+  window.api.companionSettingsUpdate({
+    aiMode:       c.aiMode       || 'none',
+    aiProvider:   c.aiProvider   || 'anthropic',
+    anthropicKey: c.anthropicKey || '',
+    openaiKey:    c.openaiKey    || '',
+    geminiKey:    c.geminiKey    || '',
+    ollamaUrl:    c.ollamaUrl    || 'http://localhost:11434',
+    ollamaModel:  c.ollamaModel  || 'llama3',
   });
 }
 

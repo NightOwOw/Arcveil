@@ -20,6 +20,19 @@ export function initCanvas(container, inner) {
   EventBus.on('project:loaded', () => { fitAll(); });
   EventBus.on('nodes:updated', _updateMinimap);
   EventBus.on('canvas:node-moved', _updateMinimap);
+  EventBus.on('canvas:focus-node', focusNode);
+}
+
+export function focusNode(nodeId) {
+  if (!_container) return;
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  const cx = node.x + (node.size || 52) / 2;
+  const cy = node.y + (node.size || 52) / 2;
+  state.view.x = _container.clientWidth  / 2 - cx * state.view.scale;
+  state.view.y = _container.clientHeight / 2 - cy * state.view.scale;
+  applyTransform();
+  EventBus.emit('canvas:zoom-changed', state.view.scale);
 }
 
 export function applyTransform() {

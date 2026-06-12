@@ -6,12 +6,13 @@
 // ============================================
 
 import { state, EventBus, uid, saveHistory, undo, redo } from './state.js';
+import { matchShortcut } from './shortcuts.js';
 import { initCanvas, fitAll, screenToCanvas, applyTransform } from './canvas/canvas.js';
 import { initNodes, renderNodes, addNodeAt, addMediaNode } from './canvas/nodes.js';
 import { initEdges, renderEdges, startEdgeConnect } from './canvas/edges.js';
 import { initSidebar } from './ui/sidebar.js';
 import { initPanels } from './ui/panels.js';
-import { initContextMenus, showCanvasMenu } from './ui/contextmenu.js';
+import { initContextMenus, showCanvasMenu, showMultiSelectMenu } from './ui/contextmenu.js';
 import { initModals } from './ui/modals.js';
 import { initThemes, applyTheme, cycleTheme } from './ui/themes.js';
 import { saveProject, saveProjectAs, openProject, newProject, startAutoSave } from './storage.js';
@@ -78,6 +79,17 @@ export async function initRouter() {
   // Load last project or show demo
   await _loadStartup();
 
+  // AU banner exit
+  document.getElementById('au-banner-exit')?.addEventListener('click', () => {
+    state.activeAuId = null;
+    import('./story/universes.js').then(m => m.updateAUBanner?.());
+  });
+
+  // Restore AU banner on project load
+  EventBus.on('project:loaded', () => {
+    import('./story/universes.js').then(m => m.updateAUBanner?.());
+  });
+
   // Navigate to dashboard
   navigateTo('dashboard');
 
@@ -100,7 +112,7 @@ function _pushOverlayState() {
   const chars = (state.nodes || [])
     .filter(n => n.type === 'character')
     .slice(0, 10)
-    .map(n => ({ id: n.id, name: n.label, emoji: n.emoji || '👤' }));
+    .map(n => ({ id: n.id, name: n.name, icon: '○' }));
 
   window.api?.overlayStatePush?.({
     projectName:      state.project?.name    || 'Untitled',
@@ -170,6 +182,9 @@ async function _loadViewModule(view) {
       case 'story':
         (await import('./story/timeline.js')).renderStoryView?.(document.getElementById('view-story'));
         break;
+      case 'universes':
+        (await import('./story/universes.js')).renderUniversesView?.(document.getElementById('view-universes'));
+        break;
       case 'lore':
         (await import('./world/lore.js')).renderLoreView?.(document.getElementById('view-lore'));
         break;
@@ -192,7 +207,17 @@ function _bindCanvasInteraction(container) {
   if (!container) return;
   let panning = false, startX, startY, startVX, startVY;
 
+  // ── Right-mouse drag: box selection ──────────────────────────────────────────
+  let _selStart = null, _selBox = null, _selDragged = false, _suppressCtxMenu = false;
+
   container.addEventListener('mousedown', e => {
+    if (e.button === 2 && !e.target.closest('.node') && !e.target.closest('#ctx-menu')) {
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      _selStart = { x: e.clientX - rect.left, y: e.clientY - rect.top, cx: e.clientX, cy: e.clientY };
+      _selDragged = false;
+      return;
+    }
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       panning = true;
       startX = e.clientX; startY = e.clientY;
@@ -200,13 +225,37 @@ function _bindCanvasInteraction(container) {
       container.style.cursor = 'grabbing';
       e.preventDefault();
     }
+    // Left-click on empty canvas clears selection (skip SVG edges — their own click handlers fire after mousedown)
+    if (e.button === 0 && !e.target.closest('.node') && !e.target.closest('#edges-svg') && !e.altKey) {
+      state.selectedNodes.clear();
+      EventBus.emit('nodes:updated');
+    }
   });
 
   document.addEventListener('mousemove', e => {
-    if (!panning) return;
-    state.view.x = startVX + (e.clientX - startX);
-    state.view.y = startVY + (e.clientY - startY);
-    applyTransform();
+    // Panning
+    if (panning) {
+      state.view.x = startVX + (e.clientX - startX);
+      state.view.y = startVY + (e.clientY - startY);
+      applyTransform();
+    }
+    // Selection box
+    if (_selStart && (e.buttons & 2)) {
+      const rect = container.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const dx = e.clientX - _selStart.cx, dy = e.clientY - _selStart.cy;
+      if (!_selDragged && Math.abs(dx) + Math.abs(dy) > 6) {
+        _selDragged = true;
+        _selBox = document.createElement('div');
+        _selBox.id = 'av-sel-box';
+        container.appendChild(_selBox);
+      }
+      if (_selBox) {
+        const x1 = Math.min(mx, _selStart.x), y1 = Math.min(my, _selStart.y);
+        const x2 = Math.max(mx, _selStart.x), y2 = Math.max(my, _selStart.y);
+        _selBox.style.cssText = `position:absolute;left:${x1}px;top:${y1}px;width:${x2-x1}px;height:${y2-y1}px;pointer-events:none;z-index:200`;
+      }
+    }
   });
 
   document.addEventListener('mouseup', e => {
@@ -214,19 +263,42 @@ function _bindCanvasInteraction(container) {
       panning = false;
       container.style.cursor = '';
     }
+    if (e.button === 2 && _selStart) {
+      if (_selDragged && _selBox) {
+        // Compute canvas-space rect
+        const rect = container.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const x1 = Math.min(mx, _selStart.x), y1 = Math.min(my, _selStart.y);
+        const x2 = Math.max(mx, _selStart.x), y2 = Math.max(my, _selStart.y);
+        const p1 = screenToCanvas(x1, y1);
+        const p2 = screenToCanvas(x2, y2);
+        state.selectedNodes.clear();
+        for (const n of state.nodes) {
+          const ns = n.size || 52;
+          if (n.x + ns > p1.x && n.x < p2.x && n.y + ns > p1.y && n.y < p2.y) {
+            state.selectedNodes.add(n.id);
+          }
+        }
+        EventBus.emit('nodes:updated');
+        _suppressCtxMenu = true;
+        setTimeout(() => { _suppressCtxMenu = false; }, 120);
+        // Show multi-select context menu if any selected
+        if (state.selectedNodes.size > 1) {
+          showMultiSelectMenu(e.clientX, e.clientY, [...state.selectedNodes]);
+        }
+      }
+      _selBox?.remove(); _selBox = null; _selStart = null; _selDragged = false;
+    }
   });
 
   container.addEventListener('contextmenu', e => {
     e.preventDefault();
-    const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    if (_suppressCtxMenu) return;
+    const rect = container.getBoundingClientRect();
+    const { x, y } = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
     showCanvasMenu(e.clientX, e.clientY, x, y);
   });
 
-  container.addEventListener('dblclick', e => {
-    if (e.target.closest('.node')) return; // node handles its own dblclick
-    const { x, y } = screenToCanvas(e.clientX, e.clientY);
-    addNodeAt('character', x, y);
-  });
 }
 
 // ── Toolbar ───────────────────────────────────────────────────────────────────
@@ -266,32 +338,33 @@ function _bindToolbar() {
 
 function _bindKeyboard() {
   document.addEventListener('keydown', e => {
-    const ctrl = e.ctrlKey || e.metaKey;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-    if (ctrl && e.key === 'n') { e.preventDefault(); newProject(); }
-    if (ctrl && e.key === 'o') { e.preventDefault(); openProject(); }
-    if (ctrl && e.key === 's') { e.preventDefault(); e.shiftKey ? saveProjectAs() : saveProject(); }
-    if (ctrl && e.key === 'z') { e.preventDefault(); undo(); EventBus.emit('nodes:updated'); }
-    if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); EventBus.emit('nodes:updated'); }
-    if (ctrl && e.key === ',') { e.preventDefault(); navigateTo('settings'); }
+    // Project
+    if (matchShortcut('proj-new',     e)) { e.preventDefault(); newProject(); }
+    if (matchShortcut('proj-open',    e)) { e.preventDefault(); openProject(); }
+    if (matchShortcut('proj-save-as', e)) { e.preventDefault(); saveProjectAs(); }
+    else if (matchShortcut('proj-save', e)) { e.preventDefault(); saveProject(); }
+    if (matchShortcut('proj-undo',    e)) { e.preventDefault(); undo(); EventBus.emit('nodes:updated'); }
+    if (matchShortcut('proj-redo',    e)) { e.preventDefault(); redo(); EventBus.emit('nodes:updated'); }
+    if (matchShortcut('nav-settings', e)) { e.preventDefault(); navigateTo('settings'); }
 
-    // Canvas shortcuts
+    // Canvas-only shortcuts
     if (_currentView === 'canvas') {
-      if (e.key === 'n' || e.key === 'N') addNodeAt('character', 300 + Math.random()*200, 200 + Math.random()*200);
-      if (e.key === 'f' || e.key === 'F') fitAll();
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (matchShortcut('canvas-add-node', e)) addNodeAt('character', 300 + Math.random()*200, 200 + Math.random()*200);
+      if (matchShortcut('canvas-fit',      e)) fitAll();
+      if (matchShortcut('canvas-delete',   e) || e.key === 'Backspace') {
         state.selectedNodes.forEach(id => { import('./state.js').then(m => m.deleteNode(id)); });
         state.selectedNodes.clear();
       }
     }
 
-    // View shortcuts
-    if (e.key === '1') navigateTo('dashboard');
-    if (e.key === '2') navigateTo('canvas');
-    if (e.key === '3') navigateTo('characters');
-    if (e.key === '4') navigateTo('writing');
-    if (e.key === '5') navigateTo('world');
+    // Navigation
+    if (matchShortcut('nav-dashboard',   e)) navigateTo('dashboard');
+    if (matchShortcut('nav-canvas',      e)) navigateTo('canvas');
+    if (matchShortcut('nav-characters',  e)) navigateTo('characters');
+    if (matchShortcut('nav-writing',     e)) navigateTo('writing');
+    if (matchShortcut('nav-world',       e)) navigateTo('world');
   });
 }
 
